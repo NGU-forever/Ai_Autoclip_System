@@ -1,0 +1,138 @@
+# ============================================================
+# docker-compose.yml — 默认面向生产/客户私有化部署
+# 启动: docker compose up -d --build
+# 本地后端热重载: 叠加 docker-compose.dev.yml（见该文件说明）
+# ============================================================
+
+services:
+
+  # ----------------------------------------------------------
+  # db: PostgreSQL 15 database
+  # ----------------------------------------------------------
+  db:
+    image: pgvector/pgvector:pg15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-b2b_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-b2b_password}
+      POSTGRES_DB: ${POSTGRES_DB:-b2b_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-b2b_user} -d ${POSTGRES_DB:-b2b_db}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ----------------------------------------------------------
+  # redis: For SSE event streaming
+  # ----------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+
+  # ----------------------------------------------------------
+  # web: FastAPI (auth + Storyline + Uploader)
+  # ----------------------------------------------------------
+  web:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-b2b_user}:${POSTGRES_PASSWORD:-b2b_password}@db:5432/${POSTGRES_DB:-b2b_db}
+      REDIS_URL: redis://redis:6379/0
+      OPENSTORYLINE_PUBLIC_URL: ${OPENSTORYLINE_PUBLIC_URL:-http://localhost:7860}
+      OPENSTORYLINE_INTERNAL_URL: http://storyline:7860
+      DEV_MODE: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - ./storage:/app/storage # 核心存储挂载（代码来自镜像，不挂载 backend）
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).read()",
+        ]
+      interval: 10s
+      timeout: 6s
+      retries: 5
+      start_period: 90s
+
+  # ----------------------------------------------------------
+  # storyline: FireRed-OpenStoryline service
+  # ----------------------------------------------------------
+  storyline:
+    build:
+      context: ./FireRed-OpenStoryline
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "7860:7860"
+      - "8001:8001"
+    volumes:
+      - ./FireRed-OpenStoryline/config.toml:/app/config.toml
+      - ./storage:/storage # 与 config 中 media_dir / outputs_dir / server_cache_dir 对应（/storage/...）
+    depends_on:
+      web:
+        condition: service_healthy
+
+  # ----------------------------------------------------------
+  # n8n: Workflow Automation Node
+  # ----------------------------------------------------------
+  # n8n:
+  #   image: docker.n8n.io/n8nio/n8n
+  #   restart: always
+  #   ports:
+  #     - "5678:5678"
+  #   environment:
+  #     - N8N_HOST=${N8N_HOST:-localhost}
+  #     - N8N_PORT=${N8N_PORT:-5678}
+  #     - N8N_PROTOCOL=${N8N_PROTOCOL:-http}
+  #     - NODE_ENV=production
+  #     - WEBHOOK_URL=${WEBHOOK_URL:-http://localhost:5678/}
+  #     - GENERIC_TIMEZONE=${GENERIC_TIMEZONE:-Asia/Shanghai}
+  #     - N8N_BLOCK_SVG_XSS_FOR_USER_CONTENT=true
+  #     - N8N_USE_BEHIND_PROXY=true
+  #   volumes:
+  #     - n8n_data:/home/node/.n8n
+  #   depends_on:
+  #     - db
+  #     - redis
+
+  # ----------------------------------------------------------
+  # user-frontend: React (Vite) user dashboard on port 80
+  # ----------------------------------------------------------
+  user-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NGINX_CONF: nginx.conf
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./storage/exports:/usr/share/nginx/html/downloads:ro # 允许用户下载成片
+    depends_on:
+      - web
+      - storyline
+
+volumes:
+  postgres_data:
+  n8n_data:

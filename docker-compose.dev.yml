@@ -1,0 +1,11 @@
+# ============================================================
+# 本地开发：挂载 backend 源码并启用 Uvicorn --reload
+# 使用: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+# ============================================================
+
+services:
+  web:
+    environment:
+      DEV_MODE: "true"
+    volumes:
+      - ./backend:/app
