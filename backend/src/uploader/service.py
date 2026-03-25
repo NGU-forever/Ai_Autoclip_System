@@ -121,6 +121,19 @@ class UploaderService:
             for a in accounts
         ]
 
+    def find_account_by_cookie_file(self, cookie_filename: str) -> Optional[AccountResponse]:
+        """按 cookie 文件名查找已登记账号（扫码/持久化会话复用同一文件时需返回已有记录）。"""
+        for a in _load_accounts():
+            if a.get("cookie_file") == cookie_filename:
+                return AccountResponse(
+                    id=a["id"],
+                    platform=a["platform"],
+                    user_name=a["user_name"],
+                    cookie_file=a["cookie_file"],
+                    status=a.get("status", 1),
+                )
+        return None
+
     def add_account(
         self,
         platform: str,

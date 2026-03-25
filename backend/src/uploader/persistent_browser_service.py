@@ -736,13 +736,15 @@ class PersistentBrowserManager:
             pass
         
         # 判断登录成功：需要满足以下条件之一
-        # 1. 总分 >= 4（高置信度）
+        # 1. 总分 >= 3
         # 2. DOM 元素检测通过 + 任意其他检测（因为 DOM 元素最可靠）
         # 3. Cookie 检测通过 + URL 匹配（Cookie + URL 也很可靠）
+        # 4. 非登录页且关键 Cookie 已就绪（避免仅靠 Cookie 分数不足导致不落盘 storage_state）
         is_logged_in = (
             score >= 3
             or ("dom" in detected_methods and len(detected_methods) >= 2)
             or ("cookie" in detected_methods and "url" in detected_methods)
+            or (cookie_matched and not is_login_page)
         )
         
         if is_logged_in:

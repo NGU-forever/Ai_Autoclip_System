@@ -171,17 +171,17 @@ async def get_qr_login_status(
         platform=task.platform,
     )
     
-    # 如果登录成功，自动创建账号
+    # 如果登录成功：新建账号或返回已绑定的同一 cookie 文件对应账号
     if task.status == LoginStatus.SUCCESS and task.cookie_file:
-        # 检查是否已添加过此账号
-        existing = service.list_accounts()
-        if not any(a.cookie_file == task.cookie_file for a in existing):
-            account = service.add_account(
+        existing = service.find_account_by_cookie_file(task.cookie_file)
+        if existing:
+            response.account = existing
+        else:
+            response.account = service.add_account(
                 platform=task.platform,
                 user_name=task.user_name or f"{task.platform}_{task.id[:8]}",
                 cookie_filename=task.cookie_file,
             )
-            response.account = account
     
     if task.error_msg:
         response.error = task.error_msg
@@ -490,16 +490,17 @@ async def get_persistent_session_status(
         status=session.status.value,
     )
     
-    # 如果登录成功，自动创建账号
+    # 如果登录成功：新建账号或返回已绑定的同一 cookie 文件对应账号
     if session.status == SessionStatus.SUCCESS and session.cookie_file:
-        existing = service.list_accounts()
-        if not any(a.cookie_file == session.cookie_file for a in existing):
-            account = service.add_account(
+        existing = service.find_account_by_cookie_file(session.cookie_file)
+        if existing:
+            response.account = existing
+        else:
+            response.account = service.add_account(
                 platform=session.platform,
                 user_name=session.user_name or f"{session.platform}_{session.id[:8]}",
                 cookie_filename=session.cookie_file,
             )
-            response.account = account
     
     if session.error_msg:
         response.error = session.error_msg

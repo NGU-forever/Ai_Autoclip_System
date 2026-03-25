@@ -276,6 +276,8 @@ const QRLoginModal: React.FC<{
   onClose: () => void;
   platform: QRPersistPlatform | null;
   onSuccess: (account: Account) => void;
+  /** 登录成功但接口未带 account 时刷新列表（防御性） */
+  onAccountsRefresh?: () => void | Promise<void>;
   persistentSession?: { sessionId: string; qrUrl: string; status: string } | null;
   initError?: string | null;
   platformInitLoading?: boolean;
@@ -293,6 +295,7 @@ const QRLoginModal: React.FC<{
   onClose,
   platform,
   onSuccess,
+  onAccountsRefresh,
   persistentSession,
   initError = null,
   platformInitLoading = false,
@@ -380,9 +383,13 @@ const QRLoginModal: React.FC<{
     try {
       const status = await onCheckStatus(platform);
       if (status) {
-        if (status.status === 'success' && status.account) {
+        if (status.status === 'success') {
           setLocalStatus('success');
-          onSuccess(status.account);
+          if (status.account) {
+            onSuccess(status.account);
+          } else {
+            await onAccountsRefresh?.();
+          }
           setTimeout(() => {
             handleClose();
           }, 1500);
@@ -641,6 +648,7 @@ const AccountManager: React.FC<{
     account?: Account;
     error?: string;
   } | null>;
+  onAccountsRefresh?: () => void | Promise<void>;
 }> = ({
   isOpen,
   onClose,
@@ -655,6 +663,7 @@ const AccountManager: React.FC<{
   onReinitPersistentSession,
   onRefreshQR,
   onCheckStatus,
+  onAccountsRefresh,
 }) => {
   const [activeTab, setActiveTab] = useState<'qr' | 'manual'>('qr');
   const [showQRLogin, setShowQRLogin] = useState(false);
@@ -925,6 +934,7 @@ const AccountManager: React.FC<{
         onClose={handleCloseQRLogin}
         platform={qrPlatform}
         onSuccess={handleQRSuccess}
+        onAccountsRefresh={onAccountsRefresh}
         persistentSession={
           qrPlatform && persistentSessions ? persistentSessions[qrPlatform] : null
         }
@@ -1597,6 +1607,7 @@ export const VideoDistributor: React.FC = () => {
         onReinitPersistentSession={reinitSession}
         onRefreshQR={refreshQR}
         onCheckStatus={checkStatus}
+        onAccountsRefresh={fetchAccounts}
       />
     </div>
   );
