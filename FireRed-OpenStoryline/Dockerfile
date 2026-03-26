@@ -1,5 +1,7 @@
-# 基础镜像
-FROM python:3.11-slim
+# 基础镜像：默认阿里云 library 同步；不可用则构建加参，例如：
+#   docker build --build-arg PYTHON_IMAGE=python:3.11-slim .
+ARG PYTHON_IMAGE=registry.cn-hangzhou.aliyuncs.com/library/python:3.11-slim
+FROM ${PYTHON_IMAGE}
 
 # 设置工作目录
 WORKDIR /app
