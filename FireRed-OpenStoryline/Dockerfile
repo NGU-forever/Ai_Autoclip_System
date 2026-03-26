@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM pzm2mntd3t74vneyhy.xuanyuan.run/python:3.11-slim
 
 # 轩辕镜像优化：加速依赖下载
 ENV NPM_CONFIG_REGISTRY=https://registry.npmmirror.com \

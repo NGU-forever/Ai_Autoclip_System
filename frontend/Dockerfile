@@ -1,7 +1,7 @@
 # ========================================
 # AgentOS Enterprise - Dockerfile
 # ========================================
-FROM node:20.19.4-alpine AS builder
+FROM pzm2mntd3t74vneyhy.xuanyuan.run/node:20.19.4-alpine AS builder
 
 # 轩辕镜像优化：加速依赖下载
 ENV NPM_CONFIG_REGISTRY=https://registry.npmmirror.com \
@@ -27,7 +27,7 @@ COPY . .
 RUN npm run build
 
 # 生产镜像
-FROM nginx:1.27.2-alpine AS production
+FROM pzm2mntd3t74vneyhy.xuanyuan.run/nginx:1.27.2-alpine AS production
 
 # 复制构建产物到 Nginx 目录
 COPY --from=builder /app/dist /usr/share/nginx/html
