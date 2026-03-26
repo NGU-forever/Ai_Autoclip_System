@@ -1,10 +1,15 @@
 # ========================================
 # AgentOS Enterprise - Dockerfile
 # ========================================
+FROM node:20.19.4-alpine AS builder
 
-# 默认 Docker Hub 官方 node / nginx；换标签可构建传入，例如：
-#   docker build --build-arg NODE_IMAGE=node:22-alpine --build-arg NGINX_IMAGE=nginx:alpine .
-FROM node:20-alpine AS builder
+# 轩辕镜像优化：加速依赖下载
+ENV NPM_CONFIG_REGISTRY=https://registry.npmmirror.com \
+    PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/ \
+    PIP_TRUSTED_HOST=mirrors.aliyun.com \
+    GOPROXY=https://goproxy.cn,direct \
+    YARN_REGISTRY=https://registry.npmmirror.com \
+    HF_ENDPOINT=https://hf-mirror.com
 
 # 设置工作目录
 WORKDIR /app
@@ -22,7 +27,7 @@ COPY . .
 RUN npm run build
 
 # 生产镜像
-FROM nginx:27-alpine AS production
+FROM nginx:1.27.2-alpine AS production
 
 # 复制构建产物到 Nginx 目录
 COPY --from=builder /app/dist /usr/share/nginx/html
