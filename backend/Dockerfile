@@ -1,14 +1,5 @@
-# syntax=docker/dockerfile:1
 
-# 基础镜像：默认使用阿里云公共库（与 Docker Hub library 同步）。
-# 镜像不可用或需直连官方时，构建时传入例如：
-#   docker build --build-arg PYTHON_IMAGE=python:3.11-slim .
-ARG PYTHON_IMAGE=registry.cn-hangzhou.aliyuncs.com/library/python:3.11-slim
-
-# ============================================================
-# Stage 1 — Base Image
-# ============================================================
-FROM ${PYTHON_IMAGE} AS base
+FROM python:3.11-slim
 
 # Prevent Python from writing .pyc files and buffer stdout/stderr
 ENV PYTHONDONTWRITEBYTECODE=1 \

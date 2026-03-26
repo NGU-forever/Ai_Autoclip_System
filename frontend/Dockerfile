@@ -2,12 +2,9 @@
 # AgentOS Enterprise - Dockerfile
 # ========================================
 
-# 默认使用阿里云 library 同步镜像；不可用则构建时传入官方名，例如：
-#   docker build --build-arg NODE_IMAGE=node:20-alpine --build-arg NGINX_IMAGE=nginx:alpine .
-ARG NODE_IMAGE=registry.cn-hangzhou.aliyuncs.com/library/node:20-alpine
-ARG NGINX_IMAGE=registry.cn-hangzhou.aliyuncs.com/library/nginx:alpine
-
-FROM ${NODE_IMAGE} AS builder
+# 默认 Docker Hub 官方 node / nginx；换标签可构建传入，例如：
+#   docker build --build-arg NODE_IMAGE=node:22-alpine --build-arg NGINX_IMAGE=nginx:alpine .
+FROM node:20-alpine AS builder
 
 # 设置工作目录
 WORKDIR /app
@@ -25,7 +22,7 @@ COPY . .
 RUN npm run build
 
 # 生产镜像
-FROM ${NGINX_IMAGE} AS production
+FROM nginx:27-alpine AS production
 
 # 复制构建产物到 Nginx 目录
 COPY --from=builder /app/dist /usr/share/nginx/html

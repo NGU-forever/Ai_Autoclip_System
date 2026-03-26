@@ -1,7 +1,5 @@
-# 基础镜像：默认阿里云 library 同步；不可用则构建加参，例如：
-#   docker build --build-arg PYTHON_IMAGE=python:3.11-slim .
-ARG PYTHON_IMAGE=registry.cn-hangzhou.aliyuncs.com/library/python:3.11-slim
-FROM ${PYTHON_IMAGE}
+
+FROM python:3.11-slim
 
 # 设置工作目录
 WORKDIR /app
@@ -10,7 +8,7 @@ WORKDIR /app
 COPY requirements.txt .
 # 安装依赖
 RUN apt-get update && apt-get install -y ffmpeg wget unzip git git-lfs curl
-RUN pip install --no-cache-dir -r requirements.tx
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY run.sh .
 COPY src/ ./src/
