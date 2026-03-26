@@ -107,8 +107,55 @@ def _save_accounts(accounts: List[dict]):
         json.dump(accounts, f, ensure_ascii=False, indent=2)
 
 
+def _sync_orphan_persistent_cookie_files() -> None:
+    """
+    持久化扫码写入的 persistent_*.json 若未登记到 accounts.json，自动补一条账号。
+    解决会话已结束或前端未轮询到 success 时，cookie 已在磁盘但列表不显示的问题。
+    """
+    _ensure_uploader_dirs()
+    accounts = _load_accounts()
+    known = {a.get("cookie_file") for a in accounts if a.get("cookie_file")}
+    changed = False
+    platform_labels = {"douyin": "抖音", "tencent": "视频号", "xhs": "小红书"}
+    for platform in ("douyin", "tencent", "xhs"):
+        pdir = Path(settings.get_platform_cookies_path(platform))
+        if not pdir.is_dir():
+            continue
+        for f in sorted(pdir.glob("persistent_*.json")):
+            if f.name in known:
+                continue
+            if not f.is_file() or f.stat().st_size < 20:
+                continue
+            try:
+                with open(f, "r", encoding="utf-8") as fp:
+                    data = json.load(fp)
+                if not isinstance(data, dict) or "cookies" not in data:
+                    continue
+            except (json.JSONDecodeError, OSError):
+                continue
+            label = platform_labels.get(platform, platform)
+            rest = f.stem[len("persistent_") :] if f.stem.startswith("persistent_") else f.stem
+            short = (rest[:8] if len(rest) >= 8 else rest) or f.stem[-8:]
+            user_name = f"{label}账号_{short}"
+            accounts.append(
+                {
+                    "id": str(uuid.uuid4()),
+                    "platform": platform,
+                    "user_name": user_name,
+                    "cookie_file": f.name,
+                    "status": 1,
+                }
+            )
+            known.add(f.name)
+            changed = True
+            logger.info("Registered orphan persistent cookie as account: %s (%s)", f.name, platform)
+    if changed:
+        _save_accounts(accounts)
+
+
 class UploaderService:
     def list_accounts(self) -> List[AccountResponse]:
+        _sync_orphan_persistent_cookie_files()
         accounts = _load_accounts()
         return [
             AccountResponse(

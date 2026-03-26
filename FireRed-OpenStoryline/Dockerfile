@@ -6,6 +6,10 @@ WORKDIR /app
 
 # 复制文件
 COPY requirements.txt .
+# 安装依赖
+RUN apt-get update && apt-get install -y ffmpeg wget unzip git git-lfs curl
+RUN pip install --no-cache-dir -r requirements.tx
+
 COPY run.sh .
 COPY src/ ./src/
 COPY agent_fastapi.py .
@@ -15,11 +19,6 @@ COPY web/ ./web/
 COPY prompts/ ./prompts/
 COPY .storyline/ ./.storyline/
 COPY download.sh .
-
-# 安装依赖
-RUN apt-get update && apt-get install -y ffmpeg wget unzip git git-lfs curl
-RUN pip install --no-cache-dir -r requirements.txt
-
 # 下载
 RUN chmod +x download.sh
 RUN ./download.sh

@@ -3,7 +3,7 @@
 // ========================================
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Video,
@@ -33,6 +33,7 @@ import {
   CheckCircle2,
   XCircle,
   Loader2,
+  Sparkles,
 } from 'lucide-react';
 import { clearAuth } from '../../../core/api/http';
 import { useToast } from '../../../components/Toast';
@@ -111,6 +112,13 @@ const Header: React.FC<{ onLogout: () => void; onRefresh: () => void; refreshing
 }) => (
   <header className="h-[64px] os-glass border-b border-border-os-weak flex items-center justify-between px-6 sticky top-0 z-40">
     <div className="flex items-center gap-4">
+      <Link to="/" className="flex items-center gap-2 text-muted hover:text-text transition-colors">
+        <div className="w-8 h-8 rounded-os-sm bg-surface-2 flex items-center justify-center border border-border-os-weak">
+          <Sparkles size={16} />
+        </div>
+        <span className="text-sm">返回工作台</span>
+      </Link>
+      <div className="h-6 w-px bg-border-os-weak" />
       <div className="w-10 h-10 rounded-os-sm bg-primary flex items-center justify-center shadow-os-soft">
         <Send size={20} className="text-bg" />
       </div>

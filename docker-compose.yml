@@ -87,6 +87,9 @@ services:
       - "8001:8001"
     volumes:
       - ./FireRed-OpenStoryline/config.toml:/app/config.toml
+      # 资源与模型落到仓库内本地目录（持久化；首次若目录为空请先在本机执行: cd FireRed-OpenStoryline && bash download.sh）
+      - ./FireRed-OpenStoryline/resource:/app/resource
+      - ./FireRed-OpenStoryline/.storyline:/app/.storyline
       - ./storage:/storage # 与 config 中 media_dir / outputs_dir / server_cache_dir 对应（/storage/...）
     depends_on:
       web:
