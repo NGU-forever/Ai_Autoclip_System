@@ -1,4 +1,4 @@
-# AgentOS Enterprise — AI 视频全链路自动化剪辑系统（集成 FireRed-OpenStoryline）
+# AgentOS Enterprise — AI 视频全链路自动化剪辑系统（集成 AgentOs-OpenStoryline）
 
 ## 📝 项目概述
 
@@ -44,7 +44,7 @@ AgentOS Enterprise 是一款企业级 AI 自动化视频剪辑系统。它利用
 - Uvicorn (高性能 ASGI 服务器)
 - LangGraph (Agent 核心状态机与有向图编排)
 - n8n (强大的工作流可视化流转中心)
-- FireRed-OpenStoryline (多模态编剧与分镜生成引擎)
+- AgentOs-OpenStoryline（多模态编剧与分镜生成引擎，基于 OpenStoryline）
 - OpenAI 兼容层 (统一的多模型网关，无缝切换 Gemini 1.5 Pro, GPT-4o, Claude 等)
 - FFmpeg (底层的海量高并发异步音视频渲染引擎)
 
@@ -155,7 +155,7 @@ graph TD
 我们将复杂的垂直功能拆解为高度复用且解耦的业务 SDK，当前项目已实装两个核心 SDK 集：
 *   **Storyline SDK（全链路视频处理 SDK）**
     *   **职责范围**：全面封装了原先由多个零散节点（视觉读图、脚本撰写、素材对齐、自动剪辑）负责的影像合成工作流。
-    *   **底层支撑**：通过 FireRed-OpenStoryline 和 FFmpeg 协议簇，对音画资源进行统一调度和自动化渲染出片。
+    *   **底层支撑**：通过 AgentOs-OpenStoryline 与 FFmpeg 协议簇，对音画资源进行统一调度和自动化渲染出片。
 *   **Uploader SDK（自动化渠道分发 SDK）**
     *   **职责范围**：针对最终营销成片以及配套文案、TAG进行多套自动化渠道发布分发的执行器集。
     *   **平台适配**：目前已深度集成了支持“无头浏览器自动化登录与管理”的小红书批量发布能力。
@@ -174,11 +174,12 @@ graph TD
 |:---|:---|:---|
 | **用户端口 (User Portal)** | `http://localhost:80` | 素材上传、任务创建、结果预览 |
 | **管理端口 (Admin Portal)** | `http://localhost:81` | 节点监控、系统日志、工作流编排 |
-| **后端 API (Backend)** | `http://localhost:8000` | FastAPI 服务入口 |
+| **后端 API (Backend)** | `http://localhost:8000` | FastAPI 服务入口（认证、Storyline 桥接等） |
 | **API 文档 (Swagger)** | `http://localhost:8000/docs` | 接口调试与说明 |
+| **Uploader 服务** | `http://localhost:8002` | 分发/扫码登录等（浏览器自动化）；用户端经 Nginx 同域 `/api/admin/uploader/` 转发 |
 | **工作流引擎 (n8n)** | `http://localhost:5678` | 默认 compose **未启用**（见 `docker-compose.yml` 注释块）；启用后可用 |
-| **OpenStoryline** | `http://localhost:7860` | FireRed-OpenStoryline Web |
-| **OpenStoryline API** | `http://localhost:8001` | FireRed-OpenStoryline API ||
+| **OpenStoryline** | `http://localhost:7860` | AgentOs-OpenStoryline Web |
+| **OpenStoryline API** | `http://localhost:8001` | AgentOs-OpenStoryline API |
 | **PostgreSQL** | `localhost:5432` | 数据库（pgvector） |
 | **Redis** | `localhost:6379` | SSE/缓存（内部服务使用为主） |
 
@@ -203,7 +204,7 @@ cp .env.example .env
 
 **默认 Compose 已按生产/交付配置**：`web` 使用镜像内代码（不挂载 `./backend`）、`DEV_MODE=false`（无 Uvicorn 热重载）。客户或生产环境请修改 seed 中的默认管理员密码与 `.env` 中的 `SECRET_KEY`。
 
-**本地开发（后端热重载）**：叠加开发覆盖文件，将源码挂载进容器并启用 `--reload`：
+**本地开发（后端与 uploader 热重载）**：叠加开发覆盖文件，将 `web` 与 `uploader` 的源码挂载进容器并启用 `--reload`（见 `docker-compose.dev.yml`）：
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
@@ -249,6 +250,18 @@ docker compose up -d --build
 cd frontend && npm install && npm run dev
 ```
 
+`vite.config.ts` 已将 `/api/admin/uploader` 代理到 **`http://localhost:8002`**（独立 uploader 进程），其余 `/api` 仍代理到 `8000`。本地请同时启动主 API 与 uploader，例如：
+
+**说明**：源码目录为 `AgentOs-Uploader/`，但 Python 包名仍为 `uploader`。在仓库根目录执行一次 `ln -sfn AgentOs-Uploader uploader` 后，即可用下方 `PYTHONPATH=backend:.` 启动（Windows 可改用 `docker compose` 或自行配置等价 `PYTHONPATH`）。
+
+```bash
+# 终端 1：主 API
+cd backend && PYTHONPATH=. uvicorn src.main:app --reload --port 8000
+
+# 终端 2：uploader（仓库根目录；若刚从终端 1 的 backend 目录出发可先 cd ..）
+cd .. && PYTHONPATH=backend:. uvicorn uploader.main:app --reload --port 8002
+```
+
 后端若需同步热重载，请使用上文「环境配置」中的 `docker-compose.dev.yml` 组合命令；当前仓库的 `docker-compose.yml` 中未定义 `frontend-dev` 服务。
 
 ---
@@ -256,8 +269,9 @@ cd frontend && npm install && npm run dev
 ## 📁 目录指南
 - `/frontend`: React 前端（用户端/管理端同仓构建，Nginx 分别在 80/81 提供服务）。
 - `/backend`: FastAPI 核心逻辑、Agent/Skills、数据库与任务路由等。
-- `/FireRed-OpenStoryline`: OpenStoryline 服务（脚本/分镜生成），在 compose 中以 `storyline` 运行。
-- `/storage`: 运行期存储（如 `storage/exports` 供前端下载成片；`storage/openstoryline` 供 storyline 输出）。
+- `/AgentOs-Uploader`: 社媒分发（抖音/视频号/小红书）独立 Python 包与镜像；compose 服务名仍为 `uploader`，容器内路径 `/app/uploader`。本地开发可在根目录创建符号链接 `uploader` → `AgentOs-Uploader` 以便 `import uploader`。
+- `/AgentOs-OpenStoryline`: OpenStoryline 服务（脚本/分镜生成），在 compose 中以 `storyline` 运行。
+- `/storage`: 运行期存储（如 `storage/exports` 供前端下载成片；`storage/openstoryline` 供 storyline 输出；`storage/uploader` 供分发模块 cookies/待传视频，需与 `web`、`uploader` 容器挂载同一目录）。
 - `/docs/plans`: 设计/方案文档。
 - `/n8n_templates`: n8n 工作流模板。
 
