@@ -2,7 +2,7 @@
 // Video Distributor - 视频分发中心
 // ========================================
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -316,6 +316,8 @@ const QRLoginModal: React.FC<{
 }) => {
   const [localStatus, setLocalStatus] = useState<'idle' | 'loading' | 'waiting' | 'scanned' | 'success' | 'failed'>('idle');
   const [qrImageUrl, setQrImageUrl] = useState<string | null>(null);
+  /** 图片已解码并显示，避免 <img> 加载前白底空框闪烁 */
+  const [qrImageLoaded, setQrImageLoaded] = useState(false);
   const [qrLoadError, setQrLoadError] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -388,6 +390,10 @@ const QRLoginModal: React.FC<{
     }
   }, [isOpen]);
 
+  useLayoutEffect(() => {
+    setQrImageLoaded(false);
+  }, [qrImageUrl]);
+
   useEffect(() => {
     if (
       persistentSession?.sessionId &&
@@ -439,6 +445,7 @@ const QRLoginModal: React.FC<{
     refreshSuccessPendingRef.current = false;
     setLocalStatus('idle');
     setQrImageUrl(null);
+    setQrImageLoaded(false);
     setQrLoadError(false);
     setIsRefreshing(false);
     qrRetryCountRef.current = 0;
@@ -562,12 +569,19 @@ const QRLoginModal: React.FC<{
               ) : qrImageUrl && !qrLoadError ? (
                 <>
                   <img
+                    key={qrImageUrl}
                     src={qrImageUrl}
-                    alt="QR Code"
-                    className={`w-full h-full object-contain transition-opacity ${
-                      localStatus === 'scanned' || localStatus === 'success' ? 'opacity-10' : ''
+                    alt=""
+                    decoding="async"
+                    className={`absolute inset-0 w-full h-full object-contain transition-opacity duration-200 ${
+                      !qrImageLoaded
+                        ? 'opacity-0'
+                        : localStatus === 'scanned' || localStatus === 'success'
+                          ? 'opacity-10'
+                          : 'opacity-100'
                     }`}
                     onLoad={() => {
+                      setQrImageLoaded(true);
                       if (refreshSuccessPendingRef.current) {
                         refreshSuccessPendingRef.current = false;
                         clearRefreshSuccessTimer();
@@ -590,6 +604,12 @@ const QRLoginModal: React.FC<{
                       }
                     }}
                   />
+                  {!qrImageLoaded && !isRefreshing && (
+                    <div className="absolute inset-0 z-[5] flex flex-col items-center justify-center gap-2 bg-white">
+                      <Loader2 size={28} className="text-primary animate-spin" />
+                      <span className="text-xs text-slate-600 px-2 text-center">正在加载二维码…</span>
+                    </div>
+                  )}
                   {(persistentSession?.status === 'initializing' || isRefreshing) && (
                     <div className="absolute inset-0 bg-white/75 flex flex-col items-center justify-center gap-2 z-10">
                       <Loader2 size={28} className="text-primary animate-spin" />

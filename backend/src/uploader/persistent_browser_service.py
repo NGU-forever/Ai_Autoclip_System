@@ -247,7 +247,7 @@ class PersistentBrowserManager:
                 delay_sec=2.5,
                 log_label=f"Douyin session {session.id} goto",
             )
-            await asyncio.sleep(1)
+            await asyncio.sleep(2.8)
 
             # 捕获二维码
             await self._capture_douyin_qr(session)
@@ -264,16 +264,11 @@ class PersistentBrowserManager:
             session.qr_ready.set()
     
     async def _capture_douyin_qr(self, session: PersistentSession):
-        """捕获抖音二维码（轮询真实二维码尺寸，避免占位空白图）"""
+        """捕获抖音二维码（专用 prime + 中心 canvas 策略，避免作品体裁轮播误识别）"""
         qr_service = get_qr_login_service()
-        ok = await qr_service._capture_login_qr_fast(
+        ok = await qr_service._capture_douyin_login_qr(
             session.page,
             session.qr_code_path,
-            "Douyin",
-            min_qr_area=120 * 120,
-            initial_sleep=0.8,
-            poll_interval=0.35,
-            pre_screenshot_sleep=0.12,
         )
         png_ok = (
             ok
@@ -888,7 +883,7 @@ class PersistentBrowserManager:
                     delay_sec=2.5,
                     log_label=f"Douyin refresh {session_id} goto",
                 )
-                await asyncio.sleep(1)
+                await asyncio.sleep(2.8)
                 await self._capture_douyin_qr(session)
             elif session.platform == "tencent":
                 logger.info(f"Reloading Tencent page for session {session_id}")
