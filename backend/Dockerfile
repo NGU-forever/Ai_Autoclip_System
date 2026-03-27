@@ -16,7 +16,7 @@ WORKDIR /app
 # Set PYTHONPATH to include the current directory so "import app" works
 ENV PYTHONPATH=/app
 
-# System deps (ffmpeg/fonts used by some media workflows; Playwright brings Chromium).
+# System deps (ffmpeg/fonts for media workflows; Playwright/Chromium 仅在仓库根目录 AgentOs-Uploader/Dockerfile 构建的镜像中安装).
 RUN sed -i 's/deb.debian.org/mirrors.tencentyun.com/g' /etc/apt/sources.list.d/debian.sources && \
     sed -i 's/security.debian.org/mirrors.tencentyun.com/g' /etc/apt/sources.list.d/debian.sources && \
     apt-get update && \
@@ -31,9 +31,7 @@ RUN sed -i 's/deb.debian.org/mirrors.tencentyun.com/g' /etc/apt/sources.list.d/d
 # ============================================================
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt && \
-    playwright install chromium && \
-    playwright install-deps chromium
+    pip install --no-cache-dir -r requirements.txt
 
 # ============================================================
 # Stage 3 — Copy application code

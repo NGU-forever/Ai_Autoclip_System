@@ -9,3 +9,20 @@ services:
       DEV_MODE: "true"
     volumes:
       - ./backend:/app
+
+  uploader:
+    environment:
+      DEV_MODE: "true"
+    volumes:
+      - ./backend:/app/backend
+      - ./AgentOs-Uploader:/app/uploader
+    command:
+      [
+        "uvicorn",
+        "uploader.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8002",
+        "--reload",
+      ]

@@ -11,6 +11,11 @@ export default defineConfig({
   },
   server: {
     proxy: {
+      // 与生产 Nginx 一致：uploader 独立进程（默认 localhost:8002）
+      '/api/admin/uploader': {
+        target: 'http://localhost:8002',
+        changeOrigin: true,
+      },
       '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,
