@@ -231,6 +231,8 @@ $env:PYTHONPATH="src"; python -m open_storyline.mcp.server
 
 ## 🐳 Docker
 
+When **building the image from this repository**, run `./download.sh` once **on your host** in the project root before `docker build`. The Dockerfile does not run the downloader inside the image; it expects you to populate `.storyline/` (models), `resource/`, and `web/static/` assets locally first, or to bind-mount those paths at runtime (e.g. docker-compose).
+
 ### Pull the Image
 ```bash
 # Pull image from Docker Hub official repository

@@ -5,9 +5,9 @@ from playwright.async_api import Playwright, async_playwright, Page
 import os
 import asyncio
 
-from src.uploader.conf import LOCAL_CHROME_PATH, LOCAL_CHROME_HEADLESS
-from src.uploader.utils.base_social_media import set_init_script
-from src.uploader.utils.log import xiaohongshu_logger
+from uploader.conf import LOCAL_CHROME_PATH, LOCAL_CHROME_HEADLESS
+from uploader.utils.base_social_media import set_init_script
+from uploader.utils.log import xiaohongshu_logger
 
 
 async def cookie_auth(account_file):

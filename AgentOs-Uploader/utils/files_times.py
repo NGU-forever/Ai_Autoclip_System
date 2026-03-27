@@ -1,7 +1,7 @@
 from datetime import timedelta, datetime
 from pathlib import Path
 
-from src.uploader.conf import BASE_DIR
+from uploader.conf import BASE_DIR
 
 
 def get_absolute_path(relative_path: str, base_dir: str = None) -> str:

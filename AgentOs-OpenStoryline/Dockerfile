@@ -35,10 +35,8 @@ COPY config.toml .
 COPY web/ ./web/
 COPY prompts/ ./prompts/
 COPY .storyline/ ./.storyline/
-COPY download.sh .
-# 下载
-RUN chmod +x download.sh
-RUN ./download.sh
+# 大资源不在镜像构建时下载：请在宿主机本目录先执行 `bash download.sh`，生成 `.storyline/models`、`.storyline` 内其它产物及 `resource/`、并更新 `web/static`。
+# 使用 docker-compose 时请将上述目录挂载进容器（与 README / compose 说明一致）。
 
 # 暴露 HF Space 默认端口
 EXPOSE 7860

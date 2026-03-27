@@ -19,10 +19,10 @@ from typing import Any, Dict, List, Optional, Tuple
 from playwright.async_api import async_playwright, Page
 
 from src.config import settings
-from src.uploader.conf import LOCAL_CHROME_PATH
-from src.uploader.utils.base_social_media import set_init_script
-from src.uploader.utils.douyin_speed_routes import attach_douyin_speed_routes
-from src.uploader.utils.playwright_net import (
+from uploader.conf import LOCAL_CHROME_PATH
+from uploader.utils.base_social_media import set_init_script
+from uploader.utils.douyin_speed_routes import attach_douyin_speed_routes
+from uploader.utils.playwright_net import (
     goto_with_retry,
     merge_chromium_launch_options,
     platform_label_for_error,

@@ -8,9 +8,9 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPExcepti
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
 
-from src.auth.dependencies import get_current_user
+from src.auth.jwt_only_dependencies import get_current_user
 from src.exceptions import NotFoundException
-from src.uploader.schemas import (
+from uploader.schemas import (
     AccountResponse,
     PLATFORMS,
     PersistentBatchCloseResponse,
@@ -25,9 +25,9 @@ from src.uploader.schemas import (
     VideoItem,
     VideoListResponse,
 )
-from src.uploader.service import UploaderService, _resolve_publish_video_path
-from src.uploader.qr_login_service import get_qr_login_service, LoginStatus
-from src.uploader.persistent_browser_service import (
+from uploader.service import UploaderService, _resolve_publish_video_path
+from uploader.qr_login_service import get_qr_login_service, LoginStatus
+from uploader.persistent_browser_service import (
     get_persistent_browser_manager,
     SessionStatus,
 )

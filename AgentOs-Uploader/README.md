@@ -35,8 +35,8 @@ playwright install chromium
 
 ```python
 import asyncio
-from src.uploader import douyin_setup, DouYinVideo, weixin_setup, TencentVideo
-from src.uploader.utils import get_title_and_hashtags, TencentZoneTypes
+from uploader import douyin_setup, DouYinVideo, weixin_setup, TencentVideo
+from uploader.utils import get_title_and_hashtags, TencentZoneTypes
 
 async def upload_douyin():
     account_file = "backend/cookiesFile/douyin_xxx.json"
@@ -60,3 +60,14 @@ asyncio.run(upload_douyin())
 首次使用需扫码登录获取 Cookie：
 - 抖音：访问 https://creator.douyin.com/ 扫码，保存 storage_state 到 cookiesFile
 - 视频号：访问 https://channels.weixin.qq.com 扫码，保存 storage_state 到 cookiesFile
+
+## Docker 独立服务（生产 Compose）
+
+本目录为仓库根下的**独立包**（与 `AgentOs-OpenStoryline/` 同级），构建上下文为**仓库根目录**。
+
+- 镜像由 [`Dockerfile`](./Dockerfile) 构建，`docker-compose.yml` 中服务名为 **`uploader`**；进程入口为 **`uploader.main:app`**（[`main.py`](./main.py)）。
+- **鉴权**：独立服务内仅校验 **JWT**（与主站共用 `SECRET_KEY` / `ALGORITHM`），**不**每次请求查库；停用用户后已签发 token 在过期前仍可能调用 uploader。
+- **存储**：必须与主 API 挂载**同一** `storage` 卷（含 `uploader/cookies`、`uploader/videos`），否则无法读取成片路径与账号数据。
+- **横向扩展**：扫码登录与持久化会话状态在**进程内存**中；多副本会导致会话落到错误实例，请保持 **uploader 单副本**，或后续引入 sticky session / 共享会话存储。
+- **本地运行**：在仓库根目录执行 `PYTHONPATH=backend:. uvicorn uploader.main:app --reload --port 8002`（需已安装 `backend/requirements-uploader.txt` 与 `playwright install chromium`）。
+- **本地 pytest**：在 `backend/` 目录运行测试；`pytest.ini` 已配置 `pythonpath` 以解析顶层 `uploader` 包。含 uploader 的测试需：`pip install -r requirements-uploader.txt`。

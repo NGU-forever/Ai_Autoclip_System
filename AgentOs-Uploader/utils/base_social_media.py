@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import List
 
-from src.uploader.conf import BASE_DIR
+from uploader.conf import BASE_DIR
 
 SOCIAL_MEDIA_DOUYIN = "douyin"
 SOCIAL_MEDIA_TENCENT = "tencent"

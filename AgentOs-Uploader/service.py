@@ -9,14 +9,14 @@ from typing import List, Optional
 from fastapi import Depends, UploadFile
 
 from src.config import settings
-from src.uploader.douyin_uploader import douyin_setup, DouYinVideo
-from src.uploader.douyin_uploader.main import cookie_auth as douyin_cookie_auth
-from src.uploader.tencent_uploader import weixin_setup, TencentVideo
-from src.uploader.tencent_uploader.main import cookie_auth as tencent_cookie_auth
-from src.uploader.xhs_uploader import xiaohongshu_setup, XiaoHongShuVideo
-from src.uploader.xhs_uploader.main import cookie_auth as xhs_cookie_auth
-from src.uploader.utils import TencentZoneTypes, get_title_and_hashtags
-from src.uploader.schemas import AccountResponse, VideoItem
+from uploader.douyin_uploader import douyin_setup, DouYinVideo
+from uploader.douyin_uploader.main import cookie_auth as douyin_cookie_auth
+from uploader.tencent_uploader import weixin_setup, TencentVideo
+from uploader.tencent_uploader.main import cookie_auth as tencent_cookie_auth
+from uploader.xhs_uploader import xiaohongshu_setup, XiaoHongShuVideo
+from uploader.xhs_uploader.main import cookie_auth as xhs_cookie_auth
+from uploader.utils import TencentZoneTypes, get_title_and_hashtags
+from uploader.schemas import AccountResponse, VideoItem
 from src.exceptions import NotFoundException
 
 logger = logging.getLogger(__name__)

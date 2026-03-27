@@ -237,6 +237,8 @@ sh build_env.sh
 
 如果未安装 Docker，请先安装 https://www.docker.com/products/docker-desktop/
 
+**从本仓库本地构建镜像前**，请在项目根目录于**宿主机**执行一次 `./download.sh`（或 `bash download.sh`）。镜像构建过程**不会**在容器内执行下载；需先在本地生成 `.storyline/`（模型等）、`resource/` 与 `web/static` 相关资源，或在运行时用卷挂载这些目录（与 docker-compose 用法一致）。
+
 ### 拉取镜像
 ```
 # 从 Docker Hub 官方仓库拉取镜像
