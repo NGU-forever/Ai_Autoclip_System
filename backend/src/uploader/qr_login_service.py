@@ -164,40 +164,24 @@ class QRLoginService:
                 await asyncio.sleep(1)
                 
                 logger.info(f"Page loaded: {await page.title()} - {page.url}")
-                
-                qr_selectors = [
-                    "img[src*='scan']",
-                    "img[class*='qrcode']",
-                    "img[class*='qr']",
-                    ".qrcode img",
-                    "[class*='login'] img",
-                    "canvas",
-                ]
-                
-                qr_element = None
-                for selector in qr_selectors:
-                    try:
-                        logger.info(f"Trying selector: {selector}")
-                        await page.wait_for_selector(selector, timeout=10000)
-                        qr_element = await page.query_selector(selector)
-                        if qr_element:
-                            logger.info(f"Found QR element with selector: {selector}")
-                            break
-                    except Exception as e:
-                        logger.debug(f"Selector {selector} failed: {str(e)}")
-                        continue
-                
-                if qr_element:
-                    await qr_element.screenshot(path=task.qr_code_path)
+
+                # 与视频号/小红书一致：轮询 canvas/img，避免首个 selector 命中未加载的占位图（前端白框）
+                ok = await self._capture_login_qr_fast(
+                    page,
+                    task.qr_code_path,
+                    "Douyin",
+                    min_qr_area=120 * 120,
+                    initial_sleep=0.8,
+                    poll_interval=0.35,
+                    pre_screenshot_sleep=0.12,
+                )
+                png_ok = (
+                    ok
+                    and os.path.exists(task.qr_code_path)
+                    and os.path.getsize(task.qr_code_path) >= 200
+                )
+                if png_ok:
                     logger.info(f"Screenshot saved to {task.qr_code_path}")
-                else:
-                    logger.warning("QR element not found, taking viewport center clip")
-                    await page.screenshot(
-                        path=task.qr_code_path,
-                        clip={"x": 400, "y": 200, "width": 400, "height": 400},
-                    )
-                
-                if os.path.exists(task.qr_code_path) and os.path.getsize(task.qr_code_path) >= 200:
                     task.qr_ready.set()
                 else:
                     logger.error(f"Failed to generate QR code file at {task.qr_code_path}")

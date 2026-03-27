@@ -264,38 +264,23 @@ class PersistentBrowserManager:
             session.qr_ready.set()
     
     async def _capture_douyin_qr(self, session: PersistentSession):
-        """捕获抖音二维码"""
-        page = session.page
-        qr_selectors = [
-            "img[src*='scan']",
-            "img[class*='qrcode']",
-            "img[class*='qr']",
-            ".qrcode img",
-            "[class*='login'] img",
-            "canvas",
-        ]
-        
-        qr_element = None
-        for selector in qr_selectors:
-            try:
-                await page.wait_for_selector(selector, timeout=10000)
-                qr_element = await page.query_selector(selector)
-                if qr_element:
-                    logger.info(f"Found QR element with selector: {selector}")
-                    break
-            except Exception:
-                continue
-        
-        if qr_element:
-            await qr_element.screenshot(path=session.qr_code_path)
-        else:
-            # 兜底：截取中心区域
-            await page.screenshot(
-                path=session.qr_code_path,
-                clip={"x": 400, "y": 200, "width": 400, "height": 400},
-            )
-        
-        if os.path.exists(session.qr_code_path) and os.path.getsize(session.qr_code_path) >= 200:
+        """捕获抖音二维码（轮询真实二维码尺寸，避免占位空白图）"""
+        qr_service = get_qr_login_service()
+        ok = await qr_service._capture_login_qr_fast(
+            session.page,
+            session.qr_code_path,
+            "Douyin",
+            min_qr_area=120 * 120,
+            initial_sleep=0.8,
+            poll_interval=0.35,
+            pre_screenshot_sleep=0.12,
+        )
+        png_ok = (
+            ok
+            and os.path.exists(session.qr_code_path)
+            and os.path.getsize(session.qr_code_path) >= 200
+        )
+        if png_ok:
             session.status = SessionStatus.READY
             session.qr_ready.set()
             logger.info(f"Douyin QR code captured for session {session.id}")

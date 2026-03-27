@@ -320,7 +320,17 @@ const QRLoginModal: React.FC<{
   const [isRefreshing, setIsRefreshing] = useState(false);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const qrRetryCountRef = useRef(0);
+  /** 用户点击「刷新二维码」后，等图片 onLoad 再提示成功，避免接口返回快但图未就绪时误显「已刷新」 */
+  const refreshSuccessPendingRef = useRef(false);
+  const refreshSuccessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { showToast } = useToast();
+
+  const clearRefreshSuccessTimer = () => {
+    if (refreshSuccessTimerRef.current) {
+      clearTimeout(refreshSuccessTimerRef.current);
+      refreshSuccessTimerRef.current = null;
+    }
+  };
 
   const platformName = platform === 'douyin' ? '抖音' : platform === 'tencent' ? '视频号' : platform === 'xhs' ? '小红书' : '';
   const platformColor = platform === 'douyin' ? '#000000' : platform === 'tencent' ? '#07C160' : '#FF2442';
@@ -372,6 +382,13 @@ const QRLoginModal: React.FC<{
   }, [isOpen, platform, persistentSession, initError]);
 
   useEffect(() => {
+    if (!isOpen) {
+      clearRefreshSuccessTimer();
+      refreshSuccessPendingRef.current = false;
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
     if (
       persistentSession?.sessionId &&
       localStatus === 'waiting' &&
@@ -418,6 +435,8 @@ const QRLoginModal: React.FC<{
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
+    clearRefreshSuccessTimer();
+    refreshSuccessPendingRef.current = false;
     setLocalStatus('idle');
     setQrImageUrl(null);
     setQrLoadError(false);
@@ -447,7 +466,15 @@ const QRLoginModal: React.FC<{
       if (newQrUrl) {
         setQrImageUrl(newQrUrl);
         setLocalStatus('waiting');
-        showToast('success', '二维码已刷新');
+        refreshSuccessPendingRef.current = true;
+        clearRefreshSuccessTimer();
+        refreshSuccessTimerRef.current = setTimeout(() => {
+          refreshSuccessTimerRef.current = null;
+          if (refreshSuccessPendingRef.current) {
+            refreshSuccessPendingRef.current = false;
+            showToast('warning', '二维码加载较慢，请稍候或再次点击刷新');
+          }
+        }, 12000);
       } else {
         showToast('error', '刷新失败，请重试');
         setLocalStatus(hadQrBefore ? 'waiting' : 'failed');
@@ -540,6 +567,13 @@ const QRLoginModal: React.FC<{
                     className={`w-full h-full object-contain transition-opacity ${
                       localStatus === 'scanned' || localStatus === 'success' ? 'opacity-10' : ''
                     }`}
+                    onLoad={() => {
+                      if (refreshSuccessPendingRef.current) {
+                        refreshSuccessPendingRef.current = false;
+                        clearRefreshSuccessTimer();
+                        showToast('success', '二维码已刷新');
+                      }
+                    }}
                     onError={() => {
                       if (qrRetryCountRef.current < 5) {
                         qrRetryCountRef.current++;
@@ -547,6 +581,11 @@ const QRLoginModal: React.FC<{
                           setQrImageUrl(prev => (prev ? `${prev.split('?')[0]}?t=${Date.now()}` : null));
                         }, 2000);
                       } else {
+                        if (refreshSuccessPendingRef.current) {
+                          refreshSuccessPendingRef.current = false;
+                          clearRefreshSuccessTimer();
+                          showToast('error', '二维码加载失败，请重试');
+                        }
                         setQrLoadError(true);
                       }
                     }}
