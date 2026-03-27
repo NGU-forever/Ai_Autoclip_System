@@ -50,6 +50,7 @@ class LoginTask:
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
     qr_ready: asyncio.Event = field(default_factory=asyncio.Event)  # QR 截图完成信号
+    runner: Optional[asyncio.Task] = field(default=None, repr=False, compare=False)
 
 
 import logging
@@ -95,7 +96,7 @@ class QRLoginService:
         
         # 启动异步任务执行登录流程
         logger.info(f"Starting login task {task_id} for platform {platform}")
-        asyncio.create_task(self._do_login(task))
+        task.runner = asyncio.create_task(self._do_login(task))
         
         return task
     
@@ -111,6 +112,13 @@ class QRLoginService:
             else:
                 task.status = LoginStatus.FAILED
                 task.error_msg = f"不支持的平台: {task.platform}"
+        except asyncio.CancelledError:
+            task.status = LoginStatus.FAILED
+            if not task.error_msg:
+                task.error_msg = "用户取消"
+            task.qr_ready.set()
+            logger.info("QR login task %s cancelled", task.id)
+            raise
         except Exception as e:
             logger.error(f"Error in QR login for {task.platform}: {str(e)}")
             task.status = LoginStatus.FAILED
@@ -865,9 +873,16 @@ class QRLoginService:
             task = self.tasks[task_id]
             task.status = LoginStatus.FAILED
             task.error_msg = "用户取消"
+            task.qr_ready.set()
+            runner = task.runner
+            if runner is not None and not runner.done():
+                runner.cancel()
             # 清理二维码文件
             if task.qr_code_path and os.path.exists(task.qr_code_path):
-                os.remove(task.qr_code_path)
+                try:
+                    os.remove(task.qr_code_path)
+                except OSError:
+                    pass
 
 
 # 全局服务实例

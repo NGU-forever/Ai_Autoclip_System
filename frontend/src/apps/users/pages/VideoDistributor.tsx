@@ -278,7 +278,7 @@ const VideoPreview: React.FC<{ video: VideoItem | null }> = ({ video }) => {
   );
 };
 
-// QR Login Modal Component（三平台均为持久化浏览器会话）
+// QR Login Modal Component（按需 qr-login，单任务浏览器）
 const QRLoginModal: React.FC<{
   isOpen: boolean;
   onClose: () => void;
@@ -286,6 +286,8 @@ const QRLoginModal: React.FC<{
   onSuccess: (account: Account) => void;
   /** 登录成功但接口未带 account 时刷新列表（防御性） */
   onAccountsRefresh?: () => void | Promise<void>;
+  /** 关闭扫码弹窗时取消后端任务，释放浏览器 */
+  onDismissQRLogin?: (platform: QRPersistPlatform) => void | Promise<void>;
   persistentSession?: { sessionId: string; qrUrl: string; status: string } | null;
   initError?: string | null;
   platformInitLoading?: boolean;
@@ -304,6 +306,7 @@ const QRLoginModal: React.FC<{
   platform,
   onSuccess,
   onAccountsRefresh,
+  onDismissQRLogin,
   persistentSession,
   initError = null,
   platformInitLoading = false,
@@ -397,10 +400,8 @@ const QRLoginModal: React.FC<{
             onSuccess(status.account);
           } else {
             await onAccountsRefresh?.();
-          }
-          setTimeout(() => {
             handleClose();
-          }, 1500);
+          }
         } else if (status.status === 'failed' || status.status === 'expired') {
           setLocalStatus('failed');
         } else if (status.status === 'scanning') {
@@ -422,6 +423,9 @@ const QRLoginModal: React.FC<{
     setQrLoadError(false);
     setIsRefreshing(false);
     qrRetryCountRef.current = 0;
+    if (platform) {
+      void onDismissQRLogin?.(platform);
+    }
     onClose();
   };
 
@@ -657,6 +661,8 @@ const AccountManager: React.FC<{
     error?: string;
   } | null>;
   onAccountsRefresh?: () => void | Promise<void>;
+  onRequestQRLogin?: (platform: QRPersistPlatform) => Promise<void>;
+  onDismissQRLogin?: (platform: QRPersistPlatform) => void | Promise<void>;
 }> = ({
   isOpen,
   onClose,
@@ -672,10 +678,20 @@ const AccountManager: React.FC<{
   onRefreshQR,
   onCheckStatus,
   onAccountsRefresh,
+  onRequestQRLogin,
+  onDismissQRLogin,
 }) => {
   const [activeTab, setActiveTab] = useState<'qr' | 'manual'>('qr');
   const [showQRLogin, setShowQRLogin] = useState(false);
   const [qrPlatform, setQrPlatform] = useState<QRPersistPlatform | null>(null);
+
+  useEffect(() => {
+    if (!isOpen && qrPlatform) {
+      void onDismissQRLogin?.(qrPlatform);
+      setShowQRLogin(false);
+      setQrPlatform(null);
+    }
+  }, [isOpen, qrPlatform, onDismissQRLogin]);
   
   // Manual form state
   const [platform, setPlatform] = useState<'douyin' | 'tencent' | 'xhs'>('douyin');
@@ -697,13 +713,18 @@ const AccountManager: React.FC<{
     }
   };
 
-  const handleOpenQRLogin = (platformType: QRPersistPlatform) => {
+  const handleOpenQRLogin = async (platformType: QRPersistPlatform) => {
     setQrPlatform(platformType);
     setShowQRLogin(true);
+    await onRequestQRLogin?.(platformType);
   };
 
   const handleQRSuccess = (account: Account) => {
+    const p = qrPlatform;
     onAddByQR(account);
+    if (p) {
+      void onDismissQRLogin?.(p);
+    }
     setShowQRLogin(false);
     setQrPlatform(null);
   };
@@ -943,6 +964,7 @@ const AccountManager: React.FC<{
         platform={qrPlatform}
         onSuccess={handleQRSuccess}
         onAccountsRefresh={onAccountsRefresh}
+        onDismissQRLogin={onDismissQRLogin}
         persistentSession={
           qrPlatform && persistentSessions ? persistentSessions[qrPlatform] : null
         }
@@ -1491,10 +1513,11 @@ export const VideoDistributor: React.FC = () => {
     sessions: persistentSessions,
     errors: persistentErrors,
     loading: persistentSessionLoading,
+    requestQRLogin,
     refreshQR,
-    refreshAllPersistentQR,
     checkStatus,
     reinitSession,
+    closeSession,
   } = usePersistentQRLogin();
   
   const [selectedVideo, setSelectedVideo] = useState<VideoItem | null>(null);
@@ -1521,19 +1544,12 @@ export const VideoDistributor: React.FC = () => {
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      const [, , qrOk] = await Promise.all([
-        fetchVideos(),
-        fetchAccounts(),
-        refreshAllPersistentQR(),
-      ]);
-      showToast(
-        qrOk ? 'success' : 'warning',
-        qrOk ? '列表与扫码页已刷新' : '列表已刷新，部分平台扫码页刷新失败请稍后再试'
-      );
+      await Promise.all([fetchVideos(), fetchAccounts()]);
+      showToast('success', '列表已刷新');
     } finally {
       setRefreshing(false);
     }
-  }, [fetchVideos, fetchAccounts, refreshAllPersistentQR, showToast]);
+  }, [fetchVideos, fetchAccounts, showToast]);
 
   const handleLogout = useCallback(() => {
     clearAuth();
@@ -1616,6 +1632,8 @@ export const VideoDistributor: React.FC = () => {
         onRefreshQR={refreshQR}
         onCheckStatus={checkStatus}
         onAccountsRefresh={fetchAccounts}
+        onRequestQRLogin={requestQRLogin}
+        onDismissQRLogin={(p) => void closeSession(p)}
       />
     </div>
   );

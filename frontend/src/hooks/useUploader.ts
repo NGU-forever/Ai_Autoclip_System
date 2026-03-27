@@ -251,40 +251,6 @@ function fireKeepaliveCancelQRLogin(taskId: string): void {
   }).catch(() => {});
 }
 
-// ===== 持久化扫码登录 API =====
-
-export async function initPersistentSession(platform: string): Promise<{
-  sessionId: string;
-  platform: string;
-  status: string;
-  qrUrl: string;
-  message: string;
-}> {
-  return await http.post(`/uploader/accounts/qr-persistent/init?platform=${platform}`);
-}
-
-export async function refreshPersistentQR(sessionId: string): Promise<{ success: boolean; status?: string }> {
-  return await http.post(`/uploader/accounts/qr-persistent/${sessionId}/refresh-qr`);
-}
-
-export async function getPersistentSessionStatus(sessionId: string): Promise<{
-  sessionId: string;
-  platform: string;
-  status: string;
-  account?: Account;
-  error?: string;
-}> {
-  return await http.get(`/uploader/accounts/qr-persistent/${sessionId}/status`);
-}
-
-export async function closePersistentSession(sessionId: string): Promise<void> {
-  await http.post(`/uploader/accounts/qr-persistent/${sessionId}/cancel`);
-}
-
-export function getPersistentQRCodeUrl(sessionId: string): string {
-  return `/api/admin/uploader/accounts/qr-persistent/${sessionId}/qr-code`;
-}
-
 // ===== React Hooks =====
 
 export function useVideos() {

@@ -1,10 +1,17 @@
 // ========================================
-// Persistent QR Login Hook
-// 管理后台常驻的浏览器会话（抖音 / 视频号 / 小红书）
+// 分发页扫码：按需 qr-login（单任务浏览器，用完即关）
+// 对外仍使用 Persistent* 类型名以兼容 VideoDistributor / QRLoginModal
 // ========================================
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { http, getToken } from '../core/api/http';
+import { getToken } from '../core/api/http';
+import {
+  startQRLogin,
+  getQRCodeUrl,
+  getQRLoginStatus,
+  cancelQRLogin,
+  type QRLoginStatus,
+} from './useUploader';
 
 // ===== Types =====
 
@@ -34,65 +41,47 @@ export interface PersistentSessionStatus {
 
 // ===== Constants =====
 
-const HEARTBEAT_INTERVAL = 10000; // 10秒
 const PLATFORMS: PersistentPlatform[] = ['douyin', 'tencent', 'xhs'];
 
-const CLOSE_ALL_URL = '/api/admin/uploader/accounts/qr-persistent/close-all';
+const QR_LOGIN_CANCEL_URL = (taskId: string) =>
+  `/api/admin/uploader/accounts/qr-login/${taskId}/cancel`;
 
-function fireKeepaliveCloseAll(): void {
+function fireKeepaliveCancelQRLogin(taskId: string): void {
   const token = getToken();
   if (!token) return;
-  fetch(CLOSE_ALL_URL, {
+  fetch(QR_LOGIN_CANCEL_URL(taskId), {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
     keepalive: true,
   }).catch(() => {});
 }
 
-// ===== API Functions =====
-
-export async function initPersistentSession(platform: PersistentPlatform): Promise<PersistentSession> {
-  return await http.post<PersistentSession>(`/uploader/accounts/qr-persistent/init?platform=${platform}`);
+function mapTaskStatusToModal(
+  s: QRLoginStatus['status'] | undefined
+): PersistentSession['status'] {
+  switch (s) {
+    case 'pending':
+      return 'ready';
+    case 'scanning':
+      return 'scanning';
+    case 'success':
+      return 'success';
+    case 'expired':
+      return 'expired';
+    case 'failed':
+    default:
+      return 'failed';
+  }
 }
 
-export async function sendHeartbeat(sessionId: string): Promise<{ success: boolean; status?: string }> {
-  const response = await http.post<{ success: boolean; status?: string }>(
-    `/uploader/accounts/qr-persistent/${sessionId}/heartbeat`
-  );
-  return response;
-}
-
-export async function refreshQRCode(sessionId: string): Promise<{ success: boolean; status?: string }> {
-  const response = await http.post<{ success: boolean; status?: string }>(
-    `/uploader/accounts/qr-persistent/${sessionId}/refresh-qr`
-  );
-  return response;
-}
-
-export async function getPersistentSessionStatus(sessionId: string): Promise<PersistentSessionStatus> {
-  return await http.get<PersistentSessionStatus>(`/uploader/accounts/qr-persistent/${sessionId}/status`);
-}
-
-export async function closePersistentSession(sessionId: string): Promise<void> {
-  await http.post(`/uploader/accounts/qr-persistent/${sessionId}/cancel`);
-}
-
-export async function closeAllPersistentSessions(): Promise<void> {
-  await http.post('/uploader/accounts/qr-persistent/close-all');
-}
-
-export async function refreshAllPersistentSessionsApi(): Promise<{
-  success: boolean;
-  message: string;
-  refreshed: number;
-  skipped: number;
-  errors: string[];
-}> {
-  return await http.post('/uploader/accounts/qr-persistent/refresh-all');
-}
-
-export function getPersistentQRCodeUrl(sessionId: string): string {
-  return `/api/admin/uploader/accounts/qr-persistent/${sessionId}/qr-code`;
+function toPersistentSessionStatus(st: QRLoginStatus): PersistentSessionStatus {
+  return {
+    sessionId: st.taskId,
+    platform: st.platform,
+    status: mapTaskStatusToModal(st.status),
+    account: st.account,
+    error: st.error,
+  };
 }
 
 // ===== Hook =====
@@ -101,6 +90,8 @@ export interface UsePersistentQRLoginReturn {
   sessions: Record<PersistentPlatform, PersistentSession | null>;
   loading: Record<PersistentPlatform, boolean>;
   errors: Record<PersistentPlatform, string | null>;
+  /** 用户点击某平台扫码时调用：取消旧任务并启动新的 qr-login */
+  requestQRLogin: (platform: PersistentPlatform) => Promise<void>;
   refreshQR: (platform: PersistentPlatform) => Promise<string | null>;
   refreshAllPersistentQR: () => Promise<boolean>;
   closeSession: (platform: PersistentPlatform) => Promise<void>;
@@ -127,198 +118,126 @@ const emptyErrors = (): Record<PersistentPlatform, string | null> => ({
 });
 
 export function usePersistentQRLogin(): UsePersistentQRLoginReturn {
-  const [sessions, setSessions] = useState<Record<PersistentPlatform, PersistentSession | null>>(emptySessions);
-
+  const [sessions, setSessions] = useState<Record<PersistentPlatform, PersistentSession | null>>(
+    emptySessions
+  );
   const [loading, setLoading] = useState<Record<PersistentPlatform, boolean>>(emptyLoading);
-
   const [errors, setErrors] = useState<Record<PersistentPlatform, string | null>>(emptyErrors);
 
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
 
-  const initSession = useCallback(async (platform: PersistentPlatform) => {
-    setLoading(prev => ({ ...prev, [platform]: true }));
-    setErrors(prev => ({ ...prev, [platform]: null }));
-
+  const cancelActiveTask = useCallback(async (platform: PersistentPlatform) => {
+    const existing = sessionsRef.current[platform];
+    if (!existing?.sessionId || existing.status === 'success') {
+      return;
+    }
     try {
-      const existingSession = sessionsRef.current[platform];
-      if (existingSession?.sessionId) {
-        try {
-          await closePersistentSession(existingSession.sessionId);
-        } catch {
-          // 忽略关闭错误
-        }
-      }
-
-      const session = await initPersistentSession(platform);
-      setSessions(prev => ({ ...prev, [platform]: session }));
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : '初始化失败';
-      setErrors(prev => ({ ...prev, [platform]: errorMsg }));
-      console.error(`Failed to init ${platform} session:`, err);
-    } finally {
-      setLoading(prev => ({ ...prev, [platform]: false }));
+      await cancelQRLogin(existing.sessionId);
+    } catch {
+      /* ignore */
     }
   }, []);
 
+  const startOrRestartLogin = useCallback(
+    async (platform: PersistentPlatform) => {
+      setLoading(prev => ({ ...prev, [platform]: true }));
+      setErrors(prev => ({ ...prev, [platform]: null }));
+      await cancelActiveTask(platform);
+      setSessions(prev => ({ ...prev, [platform]: null }));
+      try {
+        const task = await startQRLogin(platform);
+        const sess: PersistentSession = {
+          sessionId: task.taskId,
+          platform,
+          status: mapTaskStatusToModal(task.status),
+          qrUrl: task.qrUrl || getQRCodeUrl(task.taskId),
+          message: task.message || '',
+        };
+        setSessions(prev => ({ ...prev, [platform]: sess }));
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : '启动扫码失败';
+        setErrors(prev => ({ ...prev, [platform]: errorMsg }));
+        console.error(`Failed to start QR login for ${platform}:`, err);
+      } finally {
+        setLoading(prev => ({ ...prev, [platform]: false }));
+      }
+    },
+    [cancelActiveTask]
+  );
+
+  const requestQRLogin = useCallback(
+    async (platform: PersistentPlatform) => {
+      await startOrRestartLogin(platform);
+    },
+    [startOrRestartLogin]
+  );
+
   useEffect(() => {
-    void Promise.all(PLATFORMS.map(p => initSession(p)));
-
-    return () => {
-      void closeAllPersistentSessions().catch(console.error);
-    };
-  }, [initSession]);
-
-  useEffect(() => {
-    const heartbeatInterval = setInterval(async () => {
-      const currentSessions = sessionsRef.current;
-
-      for (const platform of PLATFORMS) {
-        const session = currentSessions[platform];
-        if (session?.sessionId && session.status !== 'success') {
-          try {
-            const result = await sendHeartbeat(session.sessionId);
-            if (result.status && result.status !== session.status) {
-              setSessions(prev => ({
-                ...prev,
-                [platform]: { ...session, status: result.status as PersistentSession['status'] },
-              }));
-            }
-          } catch (err) {
-            console.warn(`Heartbeat failed for ${platform}:`, err);
-          }
+    const cancelAllOpen = () => {
+      const cur = sessionsRef.current;
+      for (const p of PLATFORMS) {
+        const s = cur[p];
+        if (s?.sessionId && s.status !== 'success') {
+          fireKeepaliveCancelQRLogin(s.sessionId);
         }
       }
-    }, HEARTBEAT_INTERVAL);
-
-    return () => {
-      clearInterval(heartbeatInterval);
     };
-  }, []);
 
-  useEffect(() => {
     const onLeave = () => {
-      fireKeepaliveCloseAll();
+      cancelAllOpen();
     };
 
     window.addEventListener('beforeunload', onLeave);
     window.addEventListener('pagehide', onLeave);
 
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        const currentSessions = sessionsRef.current;
-        for (const platform of PLATFORMS) {
-          const session = currentSessions[platform];
-          if (session?.sessionId && session.status !== 'success') {
-            sendHeartbeat(session.sessionId).catch(console.error);
-          }
-        }
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
     return () => {
       window.removeEventListener('beforeunload', onLeave);
       window.removeEventListener('pagehide', onLeave);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      cancelAllOpen();
     };
   }, []);
 
-  const refreshQR = useCallback(async (platform: PersistentPlatform): Promise<string | null> => {
-    const session = sessionsRef.current[platform];
-    if (!session?.sessionId) {
-      return null;
-    }
-
-    setLoading(prev => ({ ...prev, [platform]: true }));
-    setErrors(prev => ({ ...prev, [platform]: null }));
-
-    try {
-      setSessions(prev => ({
-        ...prev,
-        [platform]: {
-          ...session,
-          status: 'initializing',
-        },
-      }));
-
-      const result = await refreshQRCode(session.sessionId);
-
-      if (result.success) {
-        const newQrUrl = `${getPersistentQRCodeUrl(session.sessionId)}?t=${Date.now()}`;
-
-        setSessions(prev => ({
-          ...prev,
-          [platform]: {
-            ...session,
-            qrUrl: newQrUrl,
-            status: 'ready',
-          },
-        }));
-
-        return newQrUrl;
-      } else {
-        setSessions(prev => ({
-          ...prev,
-          [platform]: session,
-        }));
+  const refreshQR = useCallback(
+    async (platform: PersistentPlatform): Promise<string | null> => {
+      const session = sessionsRef.current[platform];
+      if (!session?.sessionId) {
         return null;
       }
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : '刷新失败';
-      setErrors(prev => ({ ...prev, [platform]: errorMsg }));
-      setSessions(prev => ({
-        ...prev,
-        [platform]: session,
-      }));
-      return null;
-    } finally {
-      setLoading(prev => ({ ...prev, [platform]: false }));
-    }
-  }, []);
+
+      setLoading(prev => ({ ...prev, [platform]: true }));
+      setErrors(prev => ({ ...prev, [platform]: null }));
+
+      try {
+        setSessions(prev => ({
+          ...prev,
+          [platform]: { ...session, status: 'initializing' },
+        }));
+        await cancelQRLogin(session.sessionId);
+        const task = await startQRLogin(platform);
+        const newSession: PersistentSession = {
+          sessionId: task.taskId,
+          platform,
+          status: mapTaskStatusToModal(task.status),
+          qrUrl: task.qrUrl || getQRCodeUrl(task.taskId),
+          message: task.message || '',
+        };
+        setSessions(prev => ({ ...prev, [platform]: newSession }));
+        return `${newSession.qrUrl}?t=${Date.now()}`;
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : '刷新失败';
+        setErrors(prev => ({ ...prev, [platform]: errorMsg }));
+        setSessions(prev => ({ ...prev, [platform]: session }));
+        return null;
+      } finally {
+        setLoading(prev => ({ ...prev, [platform]: false }));
+      }
+    },
+    []
+  );
 
   const refreshAllPersistentQR = useCallback(async (): Promise<boolean> => {
-    try {
-      const res = await refreshAllPersistentSessionsApi();
-      const ts = Date.now();
-      setSessions(prev => {
-        const next = { ...prev };
-        for (const platform of PLATFORMS) {
-          const s = next[platform];
-          if (s?.sessionId && s.status !== 'success') {
-            next[platform] = {
-              ...s,
-              qrUrl: `${getPersistentQRCodeUrl(s.sessionId)}?t=${ts}`,
-            };
-          }
-        }
-        return next;
-      });
-      for (const platform of PLATFORMS) {
-        const s = sessionsRef.current[platform];
-        if (!s?.sessionId) continue;
-        try {
-          const st = await getPersistentSessionStatus(s.sessionId);
-          setSessions(prev => {
-            const cur = prev[platform];
-            if (!cur?.sessionId) return prev;
-            return {
-              ...prev,
-              [platform]: {
-                ...cur,
-                status: st.status as PersistentSession['status'],
-              },
-            };
-          });
-        } catch {
-          /* ignore */
-        }
-      }
-      return res.success;
-    } catch (e) {
-      console.error('refresh-all failed:', e);
-      return false;
-    }
+    return true;
   }, []);
 
   const closeSession = useCallback(async (platform: PersistentPlatform) => {
@@ -326,46 +245,53 @@ export function usePersistentQRLogin(): UsePersistentQRLoginReturn {
     if (!session?.sessionId) {
       return;
     }
-
-    try {
-      await closePersistentSession(session.sessionId);
-      setSessions(prev => ({ ...prev, [platform]: null }));
-    } catch (err) {
-      console.error(`Failed to close ${platform} session:`, err);
-    }
-  }, []);
-
-  const checkStatus = useCallback(async (
-    platform: PersistentPlatform
-  ): Promise<PersistentSessionStatus | null> => {
-    const session = sessionsRef.current[platform];
-    if (!session?.sessionId) {
-      return null;
-    }
-
-    try {
-      const status = await getPersistentSessionStatus(session.sessionId);
-      if (status.status !== session.status) {
-        setSessions(prev => ({
-          ...prev,
-          [platform]: { ...session, status: status.status as PersistentSession['status'] },
-        }));
+    if (session.status !== 'success') {
+      try {
+        await cancelQRLogin(session.sessionId);
+      } catch (err) {
+        console.warn(`cancelQRLogin ${platform}:`, err);
       }
-      return status;
-    } catch (err) {
-      console.error(`Failed to check ${platform} status:`, err);
-      return null;
     }
+    setSessions(prev => ({ ...prev, [platform]: null }));
   }, []);
 
-  const reinitSession = useCallback(async (platform: PersistentPlatform) => {
-    await initSession(platform);
-  }, [initSession]);
+  const checkStatus = useCallback(
+    async (platform: PersistentPlatform): Promise<PersistentSessionStatus | null> => {
+      const session = sessionsRef.current[platform];
+      if (!session?.sessionId) {
+        return null;
+      }
+
+      try {
+        const st = await getQRLoginStatus(session.sessionId);
+        const mapped = mapTaskStatusToModal(st.status);
+        if (mapped !== session.status) {
+          setSessions(prev => ({
+            ...prev,
+            [platform]: { ...session, status: mapped },
+          }));
+        }
+        return toPersistentSessionStatus(st);
+      } catch (err) {
+        console.error(`Failed to check ${platform} status:`, err);
+        return null;
+      }
+    },
+    []
+  );
+
+  const reinitSession = useCallback(
+    async (platform: PersistentPlatform) => {
+      await startOrRestartLogin(platform);
+    },
+    [startOrRestartLogin]
+  );
 
   return {
     sessions,
     loading,
     errors,
+    requestQRLogin,
     refreshQR,
     refreshAllPersistentQR,
     closeSession,
