@@ -1,5 +1,5 @@
 # OpenStoryline Bridge Module
-# 提供与 FireRed-OpenStoryline MCP Server 的 HTTP Bridge API
+# 提供与 AgentOs-OpenStoryline（OpenStoryline）MCP Server 的 HTTP Bridge API
 
 from src.storyline.client import (
     StorylineMCPClient,

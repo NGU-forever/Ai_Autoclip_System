@@ -30,8 +30,6 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
 os.makedirs(settings.raw_path, exist_ok=True)
 os.makedirs(settings.intermediate_path, exist_ok=True)
 os.makedirs(settings.exports_path, exist_ok=True)
-os.makedirs(settings.uploader_cookies_path, exist_ok=True)
-os.makedirs(settings.uploader_video_path, exist_ok=True)
 
 
 @asynccontextmanager
@@ -72,8 +70,6 @@ app.mount("/storage/exports", StaticFiles(directory=settings.exports_path), name
 
 from src.auth.router import router as auth_router
 from src.storyline.router import router as storyline_router
-from src.uploader.router import router as uploader_router
 
 app.include_router(auth_router, prefix="/api/admin")
 app.include_router(storyline_router, prefix="/api/admin")
-app.include_router(uploader_router, prefix="/api/admin")

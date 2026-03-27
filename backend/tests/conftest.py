@@ -1,5 +1,8 @@
 import os
+import sys
+import types
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -9,7 +12,17 @@ from fastapi.testclient import TestClient
 os.environ.setdefault("DATABASE_URL", "postgresql://tester:tester@localhost:5432/test_db")
 os.environ.setdefault("SECRET_KEY", "test-secret-key")
 
+# 顶层目录名为 AgentOs-Uploader，但 Python 包名仍为 uploader（与容器内 /app/uploader 一致）
+_repo_root = Path(__file__).resolve().parents[2]
+_agent_uploader = _repo_root / "AgentOs-Uploader"
+_uploader_link = _repo_root / "uploader"
+if _agent_uploader.is_dir() and not _uploader_link.exists():
+    _pkg = types.ModuleType("uploader")
+    _pkg.__path__ = [str(_agent_uploader)]
+    sys.modules["uploader"] = _pkg
+
 from src.auth.dependencies import get_current_user
+from src.auth.jwt_only_dependencies import get_current_user as uploader_get_current_user
 from src.auth.router import router as auth_router
 from src.auth.schemas import LoginRequest, TokenResponse
 from src.auth.service import AuthService
@@ -17,7 +30,7 @@ from src.config import settings
 from src.exceptions import AppException, UnauthorizedException, app_exception_handler, global_exception_handler
 from src.storyline.router import router as storyline_router
 from src.users.schemas import UserResponse
-from src.uploader.router import router as uploader_router
+from uploader.router import router as uploader_router
 
 
 def _utc_now() -> datetime:
@@ -82,6 +95,7 @@ def app(tmp_path) -> FastAPI:
     app.add_exception_handler(AppException, app_exception_handler)
     app.add_exception_handler(Exception, global_exception_handler)
     app.dependency_overrides[get_current_user] = override_current_user
+    app.dependency_overrides[uploader_get_current_user] = override_current_user
     app.dependency_overrides[AuthService] = lambda: FakeAuthService()
 
     app.include_router(auth_router, prefix="/api/admin")
