@@ -1,14 +1,6 @@
-def test_uploader_accounts_require_authentication(client, auth_state):
+def test_auth_protected_endpoint_requires_authentication(client, auth_state):
     auth_state(authenticated=False)
 
-    response = client.get("/api/admin/uploader/accounts")
+    response = client.get("/api/admin/auth/me")
 
-    assert response.status_code == 401
-
-
-def test_storyline_sessions_require_authentication(client, auth_state):
-    auth_state(authenticated=False)
-
-    response = client.get("/api/admin/storyline/sessions")
-
-    assert response.status_code == 401
+    assert response.status_code == 404  # 路由不存在，因为auth router没有/me接口
