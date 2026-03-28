@@ -69,7 +69,5 @@ async def health_check():
 app.mount("/storage/exports", StaticFiles(directory=settings.exports_path), name="storage-exports")
 
 from src.auth.router import router as auth_router
-from src.storyline.router import router as storyline_router
 
 app.include_router(auth_router, prefix="/api/admin")
-app.include_router(storyline_router, prefix="/api/admin")
