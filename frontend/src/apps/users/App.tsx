@@ -4,7 +4,7 @@
 // ========================================
 
 import { useState, useEffect, type ReactNode } from 'react';
-import { Routes, Route, Navigate, useNavigate, Link } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   ArrowRight,
@@ -27,8 +27,6 @@ import {
 } from 'lucide-react';
 import { http, setToken, setUser, clearAuth } from '../../core/api/http';
 import { useToast } from '../../components/Toast';
-import { VideoDistributor } from './pages/VideoDistributor';
-
 interface LoginResponse {
   accessToken: string;
   tokenType: string;
@@ -51,6 +49,7 @@ function loginErrorMessage(message: string): string {
 // ========================================
 const UserLogin: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { showToast } = useToast();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -72,7 +71,20 @@ const UserLogin: React.FC = () => {
       setToken(data.accessToken);
       setUser(data.user);
       showToast('success', '登录成功');
-      navigate('/', { replace: true });
+      const nextRaw = searchParams.get('next');
+      if (nextRaw) {
+        try {
+          const base = nextRaw.split('#')[0];
+          new URL(base);
+          window.location.replace(
+            `${base}#access_token=${encodeURIComponent(data.accessToken)}`,
+          );
+        } catch {
+          navigate('/', { replace: true });
+        }
+      } else {
+        navigate('/', { replace: true });
+      }
     } catch (err) {
       const raw = err instanceof Error ? err.message : '登录失败，请重试';
       setError(loginErrorMessage(raw));
@@ -200,6 +212,11 @@ const UserLogin: React.FC = () => {
 // ========================================
 // 用户工作台 - 选择入口页面
 // ========================================
+const UPLOADER_PUBLIC_URL = (import.meta.env.VITE_UPLOADER_PUBLIC_URL || 'http://localhost:8002').replace(
+  /\/$/,
+  '',
+);
+
 const UserDashboard: React.FC = () => {
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem('current_user') || '{}');
@@ -231,9 +248,10 @@ const UserDashboard: React.FC = () => {
       icon: Share2,
       gradient: 'from-[#3b82f6] to-[#60a5fa]',
       shadow: 'shadow-blue-500/30',
-      link: '/distribute',
+      link: UPLOADER_PUBLIC_URL,
       buttonText: '进入分发中心',
       stats: '已发布 8 个视频',
+      external: true,
     },
   ];
 
@@ -326,47 +344,54 @@ const UserDashboard: React.FC = () => {
 
           {/* Feature Cards */}
           <motion.div variants={itemVariants} className="grid md:grid-cols-2 gap-6">
-            {features.map((feature) => (
-              <motion.div
-                key={feature.id}
-                whileHover={{ y: -8, transition: { duration: 0.2 } }}
-                className="group relative"
-              >
-                <Link to={feature.link} className="block">
-                  <div className="os-card h-full p-8 hover:bg-surface-2 transition-colors">
-                    {/* Icon */}
-                    <div className={`w-16 h-16 rounded-os-md bg-primary flex items-center justify-center mb-6 shadow-os-soft group-hover:scale-110 transition-transform duration-300`}>
-                      <feature.icon size={32} className="text-bg" />
-                    </div>
-
-                    {/* Content */}
-                    <div className="space-y-3">
-                      <h3 className="text-2xl font-bold text-text">
-                        {feature.title}
-                      </h3>
-                      <p className="text-primary text-sm font-medium">{feature.subtitle}</p>
-                      <p className="text-muted text-sm leading-relaxed">{feature.description}</p>
-                    </div>
-
-                    {/* Button */}
-                    <div className="mt-8 flex items-center justify-between">
-                      <div className="flex items-center gap-2 text-xs text-muted">
-                        <BarChart3 size={14} />
-                        {feature.stats}
-                      </div>
-                      <motion.div
-                        className={`flex items-center gap-2 px-5 py-2.5 rounded-os-sm bg-primary text-bg font-medium text-sm shadow-os-soft`}
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                      >
-                        {feature.buttonText}
-                        <ChevronRight size={16} className="group-hover:translate-x-1 transition-transform" />
-                      </motion.div>
-                    </div>
+            {features.map((feature) => {
+              const card = (
+                <div className="os-card h-full p-8 hover:bg-surface-2 transition-colors">
+                  <div className="w-16 h-16 rounded-os-md bg-primary flex items-center justify-center mb-6 shadow-os-soft group-hover:scale-110 transition-transform duration-300">
+                    <feature.icon size={32} className="text-bg" />
                   </div>
-                </Link>
-              </motion.div>
-            ))}
+                  <div className="space-y-3">
+                    <h3 className="text-2xl font-bold text-text">{feature.title}</h3>
+                    <p className="text-primary text-sm font-medium">{feature.subtitle}</p>
+                    <p className="text-muted text-sm leading-relaxed">{feature.description}</p>
+                  </div>
+                  <div className="mt-8 flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-xs text-muted">
+                      <BarChart3 size={14} />
+                      {feature.stats}
+                    </div>
+                    <motion.div
+                      className="flex items-center gap-2 px-5 py-2.5 rounded-os-sm bg-primary text-bg font-medium text-sm shadow-os-soft"
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                    >
+                      {feature.buttonText}
+                      <ChevronRight size={16} className="group-hover:translate-x-1 transition-transform" />
+                    </motion.div>
+                  </div>
+                </div>
+              );
+              return (
+                <motion.div
+                  key={feature.id}
+                  whileHover={{ y: -8, transition: { duration: 0.2 } }}
+                  className="group relative"
+                >
+                  {feature.external ? (
+                    <a
+                      href={`${feature.link}#access_token=${encodeURIComponent(localStorage.getItem('access_token') || '')}`}
+                      className="block"
+                    >
+                      {card}
+                    </a>
+                  ) : (
+                    <Link to={feature.link} className="block">
+                      {card}
+                    </Link>
+                  )}
+                </motion.div>
+              );
+            })}
           </motion.div>
 
           {/* Quick Tips */}
@@ -489,8 +514,6 @@ const App: React.FC = () => {
       <Route path="/login" element={<UserLogin />} />
       <Route path="/" element={<RequireAuth><UserDashboard /></RequireAuth>} />
       <Route path="/clip" element={<RequireAuth><OpenStorylineWorkbench /></RequireAuth>} />
-      <Route path="/distribute" element={<RequireAuth><VideoDistributor /></RequireAuth>} />
-      <Route path="/distributed" element={<RequireAuth><VideoDistributor /></RequireAuth>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
