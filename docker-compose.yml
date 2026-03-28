@@ -41,8 +41,11 @@ services:
   # ----------------------------------------------------------
   uploader:
     build:
-      context: .
-      dockerfile: AgentOs-Uploader/Dockerfile
+      context: ./AgentOs-Uploader
+      dockerfile: Dockerfile
+      args:
+        VITE_LOGIN_PAGE_URL: ${VITE_LOGIN_PAGE_URL:-http://localhost/login}
+        VITE_MAIN_APP_ORIGIN: ${VITE_MAIN_APP_ORIGIN:-http://localhost}
     restart: unless-stopped
     ports:
       - "8002:8002"
@@ -160,6 +163,7 @@ services:
       dockerfile: Dockerfile
       args:
         NGINX_CONF: nginx.conf
+        VITE_UPLOADER_PUBLIC_URL: ${VITE_UPLOADER_PUBLIC_URL:-http://localhost:8002}
     restart: unless-stopped
     ports:
       - "80:80"

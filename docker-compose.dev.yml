@@ -13,9 +13,10 @@ services:
   uploader:
     environment:
       DEV_MODE: "true"
+      PYTHONPATH: /app:/app/uploader
     volumes:
-      - ./backend:/app/backend
       - ./AgentOs-Uploader:/app/uploader
+      - ./storage:/app/storage
     command:
       [
         "uvicorn",
