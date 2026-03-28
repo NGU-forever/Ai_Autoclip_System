@@ -3,7 +3,7 @@ from src.database import get_db_connection
 from src.repositories.base import BaseRepository
 
 TABLE_USERS = "users"
-TABLE_USER_PREFERENCES = "user_preferences"
+
 
 class UserRepository(BaseRepository):
     """Repository operations for users table."""
@@ -116,65 +116,3 @@ class UserRepository(BaseRepository):
     def update_last_login(self, user_id: str) -> dict[str, Any]:
         from datetime import datetime
         return self.update_user(user_id, {"last_login": datetime.utcnow()})
-
-
-class UserPreferencesRepository:
-    """Repository for user_preferences table (user_id as PK)."""
-
-    def get_preferences(self, user_id: str) -> Optional[dict[str, Any]]:
-        with get_db_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    f"SELECT * FROM {TABLE_USER_PREFERENCES} WHERE user_id = %s",
-                    (user_id,),
-                )
-                row = cur.fetchone()
-                return dict(row) if row else None
-
-    def upsert_preferences(
-        self, user_id: str, theme: Optional[str] = None, preferences: Optional[dict] = None
-    ) -> dict[str, Any]:
-        from datetime import datetime
-
-        with get_db_connection() as conn:
-            with conn.cursor() as cur:
-                existing = self.get_preferences(user_id)
-                if existing:
-                    updates: list[str] = ["updated_at = %(updated_at)s"]
-                    params: dict[str, Any] = {"user_id": user_id, "updated_at": datetime.utcnow()}
-                    if theme is not None:
-                        updates.append("theme = %(theme)s")
-                        params["theme"] = theme
-                    if preferences is not None:
-                        updates.append("preferences = %(preferences)s")
-                        params["preferences"] = preferences
-                    set_clause = ", ".join(updates)
-                    cur.execute(
-                        f"UPDATE {TABLE_USER_PREFERENCES} SET {set_clause} WHERE user_id = %(user_id)s RETURNING *",
-                        params,
-                    )
-                else:
-                    cur.execute(
-                        f"""
-                        INSERT INTO {TABLE_USER_PREFERENCES} (user_id, theme, preferences, updated_at)
-                        VALUES (%(user_id)s, %(theme)s, %(preferences)s, %(updated_at)s)
-                        RETURNING *
-                        """,
-                        {
-                            "user_id": user_id,
-                            "theme": theme or "light",
-                            "preferences": preferences if preferences is not None else {},
-                            "updated_at": datetime.utcnow(),
-                        },
-                    )
-                row = cur.fetchone()
-                return dict(row) if row else {}
-
-    def delete_preferences(self, user_id: str) -> bool:
-        with get_db_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    f"DELETE FROM {TABLE_USER_PREFERENCES} WHERE user_id = %s",
-                    (user_id,),
-                )
-                return cur.rowcount > 0

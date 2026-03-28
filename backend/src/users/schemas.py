@@ -1,12 +1,11 @@
 from datetime import datetime
-from typing import Any, Dict, Literal, Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-Theme = Literal["light", "dark"]
-
 UserRole = Literal["admin", "user", "viewer"]
 UserStatus = Literal["active", "disabled"]
+
 
 class UserBase(BaseModel):
     name: str = Field(min_length=1, max_length=100)
@@ -15,9 +14,11 @@ class UserBase(BaseModel):
     status: UserStatus = "active"
     avatar: Optional[str] = Field(default=None, max_length=500)
 
+
 class UserCreate(UserBase):
     password: Optional[str] = Field(default=None, min_length=8, max_length=128)
     model_config = ConfigDict(extra="forbid")
+
 
 class UserUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=100)
@@ -27,6 +28,7 @@ class UserUpdate(BaseModel):
     status: Optional[UserStatus] = None
     avatar: Optional[str] = Field(default=None, max_length=500)
     model_config = ConfigDict(extra="forbid")
+
 
 class UserResponse(UserBase):
     id: str
@@ -41,16 +43,3 @@ class UserListResponse(BaseModel):
     total: int
     limit: int
     offset: int
-
-
-# User preferences (theme, etc.)
-class UserPreferencesUpdate(BaseModel):
-    theme: Optional[Theme] = None
-    preferences: Optional[Dict[str, Any]] = None
-    model_config = ConfigDict(extra="forbid")
-
-
-class UserPreferencesResponse(BaseModel):
-    theme: Theme = "light"
-    preferences: Dict[str, Any] = Field(default_factory=dict)
-    model_config = ConfigDict(extra="forbid")
