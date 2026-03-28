@@ -72,7 +72,20 @@ async def health_check():
 
 app.include_router(uploader_router, prefix="/api/admin")
 
-_STATIC_ROOT = Path(__file__).resolve().parent / "web" / "dist"
+
+def _static_dist_dir() -> Path:
+    """web/dist：包内路径优先；兼容旧镜像曾使用 /app/web/dist。"""
+    pkg = Path(__file__).resolve().parent
+    primary = pkg / "web" / "dist"
+    if primary.is_dir():
+        return primary
+    legacy = pkg.parent / "web" / "dist"
+    if legacy.is_dir():
+        return legacy
+    return primary
+
+
+_STATIC_ROOT = _static_dist_dir()
 
 
 @app.get("/{full_path:path}", include_in_schema=False)

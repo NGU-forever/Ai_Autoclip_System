@@ -47,7 +47,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
     playwright install-deps chromium
 
 COPY . /app/uploader/
-COPY --from=web-builder /web/dist /app/web/dist
+# 与 main.py 中 Path(__file__).parent / "web" / "dist" 一致（勿写到 /app/web/dist）
+COPY --from=web-builder /web/dist /app/uploader/web/dist
 
 EXPOSE 8002
 

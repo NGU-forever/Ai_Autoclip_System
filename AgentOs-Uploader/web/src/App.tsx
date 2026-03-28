@@ -4,7 +4,7 @@ import { VideoDistributor } from './pages/VideoDistributor';
 export default function App() {
   return (
     <Routes>
-      <Route path="/" element={<VideoDistributor />} />
+      <Route index element={<VideoDistributor />} />
       <Route path="*" element={<VideoDistributor />} />
     </Routes>
   );
