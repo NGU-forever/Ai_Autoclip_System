@@ -5,6 +5,7 @@ import { ThemeProvider } from '../../context/ThemeContext.tsx'
 import { ToastProvider } from '../../components/Toast.tsx'
 import '../../index.css'
 import App from './App.tsx'
+import { QiankunHostInit } from './QiankunHostInit.tsx'
 
 // 部署版本校验逻辑：如果发现版本更新（每次构建生成新的时间戳），则强制清理本地缓存状态并要求重新登录。
 const VERSION_KEY = 'app_version_users';
@@ -23,6 +24,7 @@ createRoot(document.getElementById('root')!).render(
     <BrowserRouter>
       <ThemeProvider>
         <ToastProvider>
+          <QiankunHostInit />
           <App />
         </ToastProvider>
       </ThemeProvider>

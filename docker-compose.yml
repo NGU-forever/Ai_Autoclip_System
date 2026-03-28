@@ -168,7 +168,7 @@ services:
       dockerfile: Dockerfile
       args:
         NGINX_CONF: nginx.conf
-        VITE_UPLOADER_PUBLIC_URL: ${VITE_UPLOADER_PUBLIC_URL:-http://localhost:8002}
+        VITE_UPLOADER_QIANKUN_ENTRY: ${VITE_UPLOADER_QIANKUN_ENTRY:-/uploader-ui/}
     restart: unless-stopped
     ports:
       - "80:80"

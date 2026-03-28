@@ -9,7 +9,6 @@ import { AnimatePresence, motion } from 'framer-motion';
 import {
   ArrowRight,
   Clapperboard,
-  Cpu,
   Eye,
   EyeOff,
   Loader2,
@@ -212,11 +211,6 @@ const UserLogin: React.FC = () => {
 // ========================================
 // 用户工作台 - 选择入口页面
 // ========================================
-const UPLOADER_PUBLIC_URL = (import.meta.env.VITE_UPLOADER_PUBLIC_URL || 'http://localhost:8002').replace(
-  /\/$/,
-  '',
-);
-
 const UserDashboard: React.FC = () => {
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem('current_user') || '{}');
@@ -248,10 +242,10 @@ const UserDashboard: React.FC = () => {
       icon: Share2,
       gradient: 'from-[#3b82f6] to-[#60a5fa]',
       shadow: 'shadow-blue-500/30',
-      link: UPLOADER_PUBLIC_URL,
+      link: '/distribute',
       buttonText: '进入分发中心',
       stats: '已发布 8 个视频',
-      external: true,
+      external: false,
     },
   ];
 
@@ -377,18 +371,9 @@ const UserDashboard: React.FC = () => {
                   whileHover={{ y: -8, transition: { duration: 0.2 } }}
                   className="group relative"
                 >
-                  {feature.external ? (
-                    <a
-                      href={`${feature.link}#access_token=${encodeURIComponent(localStorage.getItem('access_token') || '')}`}
-                      className="block"
-                    >
-                      {card}
-                    </a>
-                  ) : (
-                    <Link to={feature.link} className="block">
-                      {card}
-                    </Link>
-                  )}
+                  <Link to={feature.link} className="block">
+                    {card}
+                  </Link>
                 </motion.div>
               );
             })}
@@ -430,7 +415,6 @@ const UserDashboard: React.FC = () => {
 // AI 剪辑平台（Storyline）
 // ========================================
 const OpenStorylineWorkbench: React.FC = () => {
-  const navigate = useNavigate();
   const [url, setUrl] = useState<string>(`${window.location.protocol}//${window.location.hostname}:7860`);
   const [loading, setLoading] = useState(true);
 
@@ -506,12 +490,27 @@ const RequireAuth: React.FC<{ children: ReactNode }> = ({ children }) => {
 };
 
 // ========================================
+// 分发中心（qiankun 子应用挂载点，须与 uploaderQiankun.ts 中 container 一致）
+// ========================================
+const UploaderMicroContainer: React.FC = () => (
+  <div id="uploader-subapp" className="min-h-screen w-full bg-bg" />
+);
+
+// ========================================
 // 主应用路由
 // ========================================
 const App: React.FC = () => {
   return (
     <Routes>
       <Route path="/login" element={<UserLogin />} />
+      <Route
+        path="/distribute/*"
+        element={
+          <RequireAuth>
+            <UploaderMicroContainer />
+          </RequireAuth>
+        }
+      />
       <Route path="/" element={<RequireAuth><UserDashboard /></RequireAuth>} />
       <Route path="/clip" element={<RequireAuth><OpenStorylineWorkbench /></RequireAuth>} />
       <Route path="*" element={<Navigate to="/" replace />} />

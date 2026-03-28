@@ -12,6 +12,7 @@
   "dependencies": {
     "framer-motion": "^12.34.4",
     "lucide-react": "^0.576.0",
+    "qiankun": "^2.10.16",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.13.1"

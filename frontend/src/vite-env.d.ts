@@ -3,7 +3,8 @@
 declare const __APP_VERSION__: string;
 
 interface ImportMetaEnv {
-  readonly VITE_UPLOADER_PUBLIC_URL: string;
+  /** qiankun 子应用 entry：开发一般为 http://localhost:5174，生产为同源 /uploader-ui/ */
+  readonly VITE_UPLOADER_QIANKUN_ENTRY?: string;
 }
 
 interface ImportMeta {
