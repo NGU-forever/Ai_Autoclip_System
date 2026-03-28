@@ -3,7 +3,7 @@
 // 包含：登录页、用户工作台（选择入口）、剪辑平台、分发中心
 // ========================================
 
-import { useState, useEffect, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Routes, Route, Navigate, useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
@@ -412,31 +412,13 @@ const UserDashboard: React.FC = () => {
 };
 
 // ========================================
-// AI 剪辑平台（Storyline）
+// AI 剪辑平台（OpenStoryline qiankun 子应用，须与 microFrontendsQiankun.ts 中 container 一致）
 // ========================================
 const OpenStorylineWorkbench: React.FC = () => {
-  const [url, setUrl] = useState<string>(`${window.location.protocol}//${window.location.hostname}:7860`);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const loadOpenStorylineUrl = async () => {
-      try {
-        const data = await http.get<{ url?: string }>('/system/openstoryline-url');
-        if (data?.url && typeof data.url === 'string') {
-          setUrl(data.url);
-        }
-      } catch {
-        // Use fallback URL when backend config endpoint is unavailable.
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadOpenStorylineUrl();
-  }, []);
+  const standaloneUrl = `${window.location.protocol}//${window.location.hostname}:7860`;
 
   return (
     <div className="min-h-screen bg-bg text-text">
-      {/* Header */}
       <header className="h-[64px] os-glass border-b border-border-os-weak">
         <div className="max-w-7xl mx-auto px-6 h-full flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -454,27 +436,19 @@ const OpenStorylineWorkbench: React.FC = () => {
           </div>
           <div className="flex items-center gap-3">
             <a
-              href={url}
+              href={standaloneUrl}
               target="_blank"
               rel="noreferrer"
               className="px-3 py-2 rounded-os-sm bg-surface-2 hover:bg-surface border border-border-os-weak text-sm text-muted hover:text-text transition-all"
             >
-              新窗口打开
+              新窗口打开（:7860）
             </a>
           </div>
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="h-[calc(100vh-64px)]">
-        {loading ? (
-          <div className="h-full flex flex-col items-center justify-center text-muted gap-4">
-            <Loader2 size={32} className="animate-spin text-primary" />
-            <p>正在加载剪辑平台...</p>
-          </div>
-        ) : (
-          <iframe title="AutoClip" src={url} className="w-full h-full border-0 bg-black" />
-        )}
+        <div id="openstoryline-subapp" className="h-full w-full min-h-0 bg-black" />
       </main>
     </div>
   );
@@ -490,7 +464,7 @@ const RequireAuth: React.FC<{ children: ReactNode }> = ({ children }) => {
 };
 
 // ========================================
-// 分发中心（qiankun 子应用挂载点，须与 uploaderQiankun.ts 中 container 一致）
+// 分发中心（qiankun 子应用挂载点，须与 microFrontendsQiankun.ts 中 container 一致）
 // ========================================
 const UploaderMicroContainer: React.FC = () => (
   <div id="uploader-subapp" className="min-h-screen w-full bg-bg" />
@@ -512,7 +486,7 @@ const App: React.FC = () => {
         }
       />
       <Route path="/" element={<RequireAuth><UserDashboard /></RequireAuth>} />
-      <Route path="/clip" element={<RequireAuth><OpenStorylineWorkbench /></RequireAuth>} />
+      <Route path="/clip/*" element={<RequireAuth><OpenStorylineWorkbench /></RequireAuth>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

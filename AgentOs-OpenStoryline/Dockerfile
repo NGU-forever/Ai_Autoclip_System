@@ -1,3 +1,14 @@
+FROM pzm2mntd3t74vneyhy.xuanyuan.run/node:20.19.4-alpine AS webbuilder
+
+ENV NPM_CONFIG_REGISTRY=https://registry.npmmirror.com \
+    YARN_REGISTRY=https://registry.npmmirror.com
+
+WORKDIR /build/web
+COPY web/package.json web/package-lock.json* ./
+RUN npm ci 2>/dev/null || npm install
+COPY web/ ./
+RUN npm run build
+
 FROM pzm2mntd3t74vneyhy.xuanyuan.run/python:3.11-slim
 
 # 轩辕镜像优化：加速依赖下载
@@ -37,9 +48,10 @@ COPY agent_fastapi.py .
 COPY cli.py .
 COPY config.toml .
 COPY web/ ./web/
+COPY --from=webbuilder /build/web/dist ./web/dist
 COPY prompts/ ./prompts/
 COPY .storyline/ ./.storyline/
-# 大资源不在镜像构建时下载：请在宿主机本目录先执行 `bash download.sh`，生成 `.storyline/models`、`.storyline` 内其它产物及 `resource/`、并更新 `web/static`。
+# 大资源不在镜像构建时下载：请在宿主机本目录先执行 `bash download.sh`，生成 `.storyline/models`、`.storyline` 内其它产物及 `resource/`、并更新 `web/legacy/static`。
 # 使用 docker-compose 时请将上述目录挂载进容器（与 README / compose 说明一致）。
 
 # 暴露 HF Space 默认端口

@@ -1,0 +1,7 @@
+**/__pycache__
+**/*.pyc
+.git
+.storyline/models
+resource
+web/node_modules
+web/dist

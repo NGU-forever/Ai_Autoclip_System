@@ -1,0 +1,7 @@
+/* Legacy OpenStoryline 自带 /static/style.css；此处仅保证壳层不塌陷 */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}

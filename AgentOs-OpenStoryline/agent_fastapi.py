@@ -55,10 +55,25 @@ from open_storyline.mcp.hooks.chat_middleware import set_mcp_log_sink, reset_mcp
 from open_storyline.utils.ai_observability import queue_ai_call_report
 
 WEB_DIR = os.path.join(ROOT_DIR, "web")
-STATIC_DIR = os.path.join(WEB_DIR, "static")
-INDEX_HTML = os.path.join(WEB_DIR, "index.html")
-NODE_MAP_HTML = os.path.join(WEB_DIR, "node_map/node_map.html")
-NODE_MAP_DIR = os.path.join(WEB_DIR, "node_map")
+LEGACY_DIR = os.path.join(WEB_DIR, "legacy")
+STATIC_DIR = os.path.join(LEGACY_DIR, "static")
+NODE_MAP_HTML = os.path.join(LEGACY_DIR, "node_map", "node_map.html")
+NODE_MAP_DIR = os.path.join(LEGACY_DIR, "node_map")
+
+
+def _static_dist_dir() -> Path:
+    """web/dist：以 agent_fastapi.py 所在目录为包根；兼容旧布局。"""
+    pkg = Path(__file__).resolve().parent
+    primary = pkg / "web" / "dist"
+    if primary.is_dir():
+        return primary
+    legacy = pkg.parent / "web" / "dist"
+    if legacy.is_dir():
+        return legacy
+    return primary
+
+
+_DIST_ROOT = _static_dist_dir()
 
 CHUNK_SIZE = 1024 * 1024  # 1MB
 
@@ -1671,17 +1686,11 @@ def _build_tts_ui_schema_from_config(config_path: str) -> dict:
 
     return {"providers": providers_out}
 
-@app.get("/")
-async def index():
-    if not os.path.exists(INDEX_HTML):
-        return Response("index.html not found. Put it under ./web/index.html", media_type="text/plain", status_code=404)
-    return FileResponse(INDEX_HTML, media_type="text/html")
-
 @app.get("/node-map")
 async def node_map():
     if not os.path.exists(NODE_MAP_HTML):
         return Response(
-            "node_map.html not found. Put it under ./web/node_map/node_map.html",
+            "node_map.html not found. Put it under ./web/legacy/node_map/node_map.html",
             media_type="text/plain",
             status_code=404,
         )
@@ -2877,3 +2886,49 @@ async def ws_chat(ws: WebSocket, session_id: str):
             WS_CONN_SEM.release()
         except:
             pass
+
+
+def _dist_request_path(full_path: str) -> str:
+    """Vite base=/openstoryline-ui/ 时静态引用为 /openstoryline-ui/assets/...，文件实际在 dist/assets/。"""
+    t = (full_path or "").strip().strip("/")
+    prefix = "openstoryline-ui"
+    if t == prefix or t.startswith(prefix + "/"):
+        t = t[len(prefix) :].lstrip("/")
+    return t
+
+
+async def _serve_spa_or_static(full_path: str):
+    if full_path.startswith("api/"):
+        raise HTTPException(status_code=404)
+    if not _DIST_ROOT.is_dir():
+        return Response(
+            "OpenStoryline UI SPA not built. Run: cd web && npm ci && npm run build (see Dockerfile).",
+            media_type="text/plain",
+            status_code=404,
+        )
+    base = _DIST_ROOT.resolve()
+    rel = _dist_request_path(full_path)
+    if rel in ("", "."):
+        candidate = base / "index.html"
+    else:
+        candidate = (base / rel).resolve()
+    try:
+        candidate.relative_to(base)
+    except ValueError:
+        raise HTTPException(status_code=404)
+    if candidate.is_file():
+        return FileResponse(candidate)
+    index = base / "index.html"
+    if index.is_file():
+        return FileResponse(index)
+    raise HTTPException(status_code=404)
+
+
+@app.get("/", include_in_schema=False)
+async def spa_index():
+    return await _serve_spa_or_static("")
+
+
+@app.get("/{full_path:path}", include_in_schema=False)
+async def spa_or_static(full_path: str):
+    return await _serve_spa_or_static(full_path)

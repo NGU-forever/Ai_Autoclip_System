@@ -90,7 +90,7 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-b2b_user}:${POSTGRES_PASSWORD:-b2b_password}@db:5432/${POSTGRES_DB:-b2b_db}
       REDIS_URL: redis://redis:6379/0
-      OPENSTORYLINE_PUBLIC_URL: ${OPENSTORYLINE_PUBLIC_URL:-http://localhost:7860}
+      OPENSTORYLINE_PUBLIC_URL: ${OPENSTORYLINE_PUBLIC_URL:-http://localhost/clip}
       OPENSTORYLINE_INTERNAL_URL: http://storyline:7860
       DEV_MODE: "false"
     depends_on:
@@ -169,6 +169,7 @@ services:
       args:
         NGINX_CONF: nginx.conf
         VITE_UPLOADER_QIANKUN_ENTRY: ${VITE_UPLOADER_QIANKUN_ENTRY:-/uploader-ui/}
+        VITE_OPENSTORYLINE_QIANKUN_ENTRY: ${VITE_OPENSTORYLINE_QIANKUN_ENTRY:-/openstoryline-ui/}
     restart: unless-stopped
     ports:
       - "80:80"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Create required directories
-mkdir -p .storyline resource
+mkdir -p .storyline resource web/legacy/static
 
 # 1. Download models.zip to .storyline/ and extract it (keep original directory name)
 wget "https://image-url-2-feature-1251524319.cos.ap-shanghai.myqcloud.com/openstoryline/models.zip" \
@@ -29,5 +29,5 @@ base_url="https://image-url-2-feature-1251524319.cos.ap-shanghai.myqcloud.com/za
 
 # Download each file
 for f in "${files[@]}"; do
-    wget "$base_url/$f" -O "web/static/$f"
+    wget "$base_url/$f" -O "web/legacy/static/$f"
 done

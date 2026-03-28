@@ -236,7 +236,7 @@ docker compose up -d --build
 - **账号**: `admin@agentos.io`
 - **密码**: `ChangeMe!Admin@2026`
 
-系统同时预设普通用户：
+系统同时预设普通用户： 
 - **账号**: `user@agentos.io`
 - **密码**: `ChangeMe!User@2026`
 
