@@ -23,6 +23,10 @@ RUN npm install
 # 复制源代码
 COPY . .
 
+# 分发中心独立端口（与 docker-compose build args 一致）
+ARG VITE_UPLOADER_PUBLIC_URL=http://localhost:8002
+ENV VITE_UPLOADER_PUBLIC_URL=$VITE_UPLOADER_PUBLIC_URL
+
 # 构建项目
 RUN npm run build
 
