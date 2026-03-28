@@ -59,5 +59,5 @@ export function LegacyOpenStoryline() {
     };
   }, []);
 
-  return <div ref={hostRef} className="openstoryline-legacy-host w-full min-h-[100vh]" />;
+  return <div ref={hostRef} className="openstoryline-legacy-host" />;
 }

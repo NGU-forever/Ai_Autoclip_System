@@ -115,7 +115,7 @@ const Header: React.FC<{ onLogout: () => void; onRefresh: () => void; refreshing
   <header className="h-[64px] os-glass border-b border-border-os-weak flex items-center justify-between px-6 sticky top-0 z-40">
     <div className="flex items-center gap-4">
       <a
-        href={`${MAIN_APP_ORIGIN}/`}
+        href="/"
         className="flex items-center gap-2 text-muted hover:text-text transition-colors"
       >
         <div className="w-8 h-8 rounded-os-sm bg-surface-2 flex items-center justify-center border border-border-os-weak">

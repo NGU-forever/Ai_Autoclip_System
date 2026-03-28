@@ -412,47 +412,11 @@ const UserDashboard: React.FC = () => {
 };
 
 // ========================================
-// AI 剪辑平台（OpenStoryline qiankun 子应用，须与 microFrontendsQiankun.ts 中 container 一致）
+// AI 剪辑：仅 qiankun 挂载点；顶栏与剪辑 UI 在 AgentOs-OpenStoryline/web 子应用内实现
 // ========================================
-const OpenStorylineWorkbench: React.FC = () => {
-  const standaloneUrl = `${window.location.protocol}//${window.location.hostname}:7860`;
-
-  return (
-    <div className="min-h-screen bg-bg text-text">
-      <header className="h-[64px] os-glass border-b border-border-os-weak">
-        <div className="max-w-7xl mx-auto px-6 h-full flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link to="/" className="flex items-center gap-2 text-muted hover:text-text transition-colors">
-              <div className="w-8 h-8 rounded-os-sm bg-surface-2 flex items-center justify-center border border-border-os-weak">
-                <Sparkles size={16} />
-              </div>
-              <span className="text-sm">返回工作台</span>
-            </Link>
-            <div className="h-6 w-px bg-border-os-weak" />
-            <div className="flex items-center gap-2">
-              <Film size={18} className="text-primary" />
-              <h1 className="font-bold">AI 智能剪辑</h1>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <a
-              href={standaloneUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="px-3 py-2 rounded-os-sm bg-surface-2 hover:bg-surface border border-border-os-weak text-sm text-muted hover:text-text transition-all"
-            >
-              新窗口打开（:7860）
-            </a>
-          </div>
-        </div>
-      </header>
-
-      <main className="h-[calc(100vh-64px)]">
-        <div id="openstoryline-subapp" className="h-full w-full min-h-0 bg-black" />
-      </main>
-    </div>
-  );
-};
+const OpenStorylineMicroContainer: React.FC = () => (
+  <div id="openstoryline-subapp" className="h-[100dvh] w-full bg-black" />
+);
 
 // ========================================
 // 认证保护组件
@@ -486,7 +450,7 @@ const App: React.FC = () => {
         }
       />
       <Route path="/" element={<RequireAuth><UserDashboard /></RequireAuth>} />
-      <Route path="/clip/*" element={<RequireAuth><OpenStorylineWorkbench /></RequireAuth>} />
+      <Route path="/clip/*" element={<RequireAuth><OpenStorylineMicroContainer /></RequireAuth>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
