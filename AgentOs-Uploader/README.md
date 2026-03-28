@@ -63,11 +63,13 @@ asyncio.run(upload_douyin())
 
 ## Docker 独立服务（生产 Compose）
 
-本目录为仓库根下的**独立包**（与 `AgentOs-OpenStoryline/` 同级），构建上下文为**仓库根目录**。
+本目录为**独立构建上下文**（与 `AgentOs-OpenStoryline/` 相同：`docker-compose.yml` 中 `context: ./AgentOs-Uploader`），镜像内包含 **FastAPI + 分发 SPA**（`web/dist`）。
 
-- 镜像由 [`Dockerfile`](./Dockerfile) 构建，`docker-compose.yml` 中服务名为 **`uploader`**；进程入口为 **`uploader.main:app`**（[`main.py`](./main.py)）。
-- **鉴权**：独立服务内仅校验 **JWT**（与主站共用 `SECRET_KEY` / `ALGORITHM`），**不**每次请求查库；停用用户后已签发 token 在过期前仍可能调用 uploader。
-- **存储**：必须与主 API 挂载**同一** `storage` 卷（含 `uploader/cookies`、`uploader/videos`），否则无法读取成片路径与账号数据。
-- **横向扩展**：扫码登录与持久化会话状态在**进程内存**中；多副本会导致会话落到错误实例，请保持 **uploader 单副本**，或后续引入 sticky session / 共享会话存储。
-- **本地运行**：在仓库根目录执行 `PYTHONPATH=backend:. uvicorn uploader.main:app --reload --port 8002`（需已安装 `backend/requirements-uploader.txt` 与 `playwright install chromium`）。
-- **本地 pytest**：在 `backend/` 目录运行测试；`pytest.ini` 已配置 `pythonpath` 以解析顶层 `uploader` 包。含 uploader 的测试需：`pip install -r requirements-uploader.txt`。
+- 镜像由 [`Dockerfile`](./Dockerfile) 多阶段构建；进程入口为 **`uploader.main:app`**（[`main.py`](./main.py)），静态页与 API 同端口（默认 **8002**）。
+- **内嵌 `src/`**：JWT 校验与配置与主 `backend/src` 对齐；部署时需与主站使用相同 **`SECRET_KEY`**（及算法），否则 token 无法通过校验。
+- **鉴权**：仅校验 **JWT**，不查库；停用用户后已签发 token 在过期前仍可能调用 uploader。
+- **存储**：与主 API 挂载**同一** `storage` 卷（含 `uploader/cookies`、`uploader/videos`）。
+- **横向扩展**：扫码登录与持久化会话在**进程内存**中；多副本需 sticky session 或共享会话存储，否则请保持 **uploader 单副本**。
+- **本地运行（API）**：仓库根目录若存在符号链接 `uploader` → `AgentOs-Uploader`，可执行 `PYTHONPATH=.:AgentOs-Uploader uvicorn uploader.main:app --reload --port 8002`；否则用 `docker compose` 或自行将 `AgentOs-Uploader` 加入 `PYTHONPATH` 并保证包名 `uploader` 可解析。依赖见本目录 [`requirements.txt`](./requirements.txt)，并执行 `playwright install chromium`。
+- **本地运行（分发前端）**：`cd web && npm install && npm run dev`（默认代理 `/api` 到 `localhost:8002`）。生产环境由 FastAPI 托管 `web/dist`。
+- **本地 pytest**：在 `backend/` 运行；`conftest` 会在无顶层 `uploader` 链接时注入 `AgentOs-Uploader` 包路径。
