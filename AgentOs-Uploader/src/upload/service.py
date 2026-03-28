@@ -16,7 +16,7 @@ from uploader.tencent_uploader.main import cookie_auth as tencent_cookie_auth
 from uploader.xhs_uploader import xiaohongshu_setup, XiaoHongShuVideo
 from uploader.xhs_uploader.main import cookie_auth as xhs_cookie_auth
 from uploader.utils import TencentZoneTypes, get_title_and_hashtags
-from uploader.schemas import AccountResponse, VideoItem
+from src.upload.schemas import AccountResponse, VideoItem
 from src.exceptions import NotFoundException
 
 logger = logging.getLogger(__name__)

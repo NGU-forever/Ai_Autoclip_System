@@ -6,14 +6,16 @@ import logging
 import os
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import FileResponse
 
 from src.config import settings
 from src.exceptions import AppException, app_exception_handler, global_exception_handler
-from uploader.router import router as uploader_router
+from src.upload.router import router as uploader_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -69,3 +71,29 @@ async def health_check():
 
 
 app.include_router(uploader_router, prefix="/api/admin")
+
+_STATIC_ROOT = Path(__file__).resolve().parent / "web" / "dist"
+
+
+@app.get("/{full_path:path}", include_in_schema=False)
+async def spa_or_static(full_path: str):
+    """托管 Vite 构建的分发 SPA；API 与 /health 由上文路由优先匹配。"""
+    if full_path.startswith("api/"):
+        raise HTTPException(status_code=404)
+    if not _STATIC_ROOT.is_dir():
+        raise HTTPException(status_code=404, detail="SPA not built")
+    base = _STATIC_ROOT.resolve()
+    if full_path in ("", "."):
+        candidate = base / "index.html"
+    else:
+        candidate = (base / full_path).resolve()
+    try:
+        candidate.relative_to(base)
+    except ValueError:
+        raise HTTPException(status_code=404)
+    if candidate.is_file():
+        return FileResponse(candidate)
+    index = base / "index.html"
+    if index.is_file():
+        return FileResponse(index)
+    raise HTTPException(status_code=404)

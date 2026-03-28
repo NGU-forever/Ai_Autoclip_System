@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 
 from src.auth.jwt_only_dependencies import get_current_user
 from src.exceptions import NotFoundException
-from uploader.schemas import (
+from src.upload.schemas import (
     AccountResponse,
     PLATFORMS,
     PersistentBatchCloseResponse,
@@ -25,7 +25,7 @@ from uploader.schemas import (
     VideoItem,
     VideoListResponse,
 )
-from uploader.service import UploaderService, _resolve_publish_video_path
+from src.upload.service import UploaderService, _resolve_publish_video_path
 from uploader.qr_login_service import get_qr_login_service, LoginStatus
 from uploader.persistent_browser_service import (
     get_persistent_browser_manager,
