@@ -1,4 +1,5 @@
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, Dict, Any
+from datetime import datetime
 
 from pydantic import BaseModel, Field
 
@@ -69,6 +70,24 @@ class PublishResponse(BaseModel):
     success: bool
     message: str
     task_id: Optional[str] = None
+
+
+class PublishTaskItem(BaseModel):
+    task_id: str
+    platform: str
+    account_id: str
+    video_id: str
+    title: str
+    status: Literal["pending", "running", "success", "failed"]
+    error_msg: Optional[str] = None
+    create_time: str
+    update_time: str
+    request_data: Dict[str, Any] = Field(default_factory=dict, description="发布请求的原始参数（用于重试）")
+
+
+class PublishTaskListResponse(BaseModel):
+    items: List[PublishTaskItem]
+    total: int
 
 
 # --- 扫码登录 ---

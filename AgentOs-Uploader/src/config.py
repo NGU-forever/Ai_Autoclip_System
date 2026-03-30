@@ -60,6 +60,10 @@ class Settings(BaseSettings):
     def uploader_accounts_file(self) -> str:
         return os.path.join(self.uploader_cookies_path, "accounts.json")
 
+    @property
+    def uploader_tasks_file(self) -> str:
+        return os.path.join(self.uploader_cookies_path, "uploader_tasks.json")
+
     def get_platform_cookies_path(self, platform: str) -> str:
         return os.path.join(self.uploader_cookies_path, platform)
 

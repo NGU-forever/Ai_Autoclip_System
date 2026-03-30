@@ -20,6 +20,8 @@ from src.upload.schemas import (
     PersistentSessionStatusResponse,
     PublishRequest,
     PublishResponse,
+    PublishTaskItem,
+    PublishTaskListResponse,
     QRLoginResponse,
     QRLoginStatusResponse,
     VideoItem,
@@ -302,8 +304,25 @@ async def publish(
             },
         )
 
+    from datetime import datetime
+    task_id = uuid.uuid4().hex
+    task_data = {
+        "task_id": task_id,
+        "platform": req.platform,
+        "account_id": req.account_id,
+        "video_id": req.video_id,
+        "title": req.title,
+        "status": "pending",
+        "error_msg": None,
+        "create_time": datetime.now().isoformat(),
+        "update_time": datetime.now().isoformat(),
+        "request_data": req.model_dump()
+    }
+    service.create_publish_task(task_data)
+
     background_tasks.add_task(
-        service.publish,
+        service.execute_publish_task,
+        task_id=task_id,
         platform=req.platform,
         account_id=req.account_id,
         video_id=req.video_id,
@@ -324,6 +343,108 @@ async def publish(
     return PublishResponse(
         success=True,
         message="发布任务已提交，正在后台执行",
+        task_id=task_id
+    )
+
+
+@router.get("/publish/tasks", response_model=PublishTaskListResponse)
+async def list_publish_tasks(
+    _user: dict = Depends(get_current_user),
+    service: UploaderService = Depends(get_uploader_service),
+):
+    """获取发布任务列表"""
+    tasks = service.list_publish_tasks()
+    return PublishTaskListResponse(items=tasks, total=len(tasks))
+
+
+@router.get("/publish/tasks/{task_id}", response_model=PublishTaskItem)
+async def get_publish_task(
+    task_id: str,
+    _user: dict = Depends(get_current_user),
+    service: UploaderService = Depends(get_uploader_service),
+):
+    """查询发布任务详情"""
+    task = service.get_publish_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    return PublishTaskItem(**task)
+
+
+@router.post("/publish/tasks/{task_id}/retry", response_model=PublishResponse)
+async def retry_publish_task(
+    task_id: str,
+    background_tasks: BackgroundTasks,
+    _user: dict = Depends(get_current_user),
+    service: UploaderService = Depends(get_uploader_service),
+):
+    """重试失败的发布任务"""
+    task = service.get_publish_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if task["status"] not in ("failed", "success", "running"): # Can retry actually anything if needed, but let's allow it in general
+        pass
+
+    req_data = task.get("request_data", {})
+    if not req_data:
+        raise HTTPException(status_code=400, detail="任务缺少原始请求数据，无法重试")
+    
+    from src.upload.schemas import PublishRequest
+    req = PublishRequest(**req_data)
+
+    try:
+        cookie_ok = await run_in_threadpool(
+            service.check_cookie_valid,
+            req.platform,
+            req.account_id,
+        )
+    except NotFoundException:
+        raise
+    if not cookie_ok:
+        try:
+            await run_in_threadpool(service.set_account_status, req.account_id, 0)
+        except NotFoundException:
+            pass
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "UPLOADER_COOKIE_INVALID",
+                "platform": req.platform,
+                "message": "登录已失效，请重新扫码登录",
+            },
+        )
+
+    # 重新生成一个新的任务记录还是复用当前任务ID？由于用户可能用 task_id 查询最新状态，最好生成新任务。
+    # 为了保持 API 简单，我们直接重用原 task_id 进行覆盖更新
+    from datetime import datetime
+    task["status"] = "pending"
+    task["error_msg"] = None
+    task["update_time"] = datetime.now().isoformat()
+    service.update_publish_task_status(task_id, "pending")
+
+    background_tasks.add_task(
+        service.execute_publish_task,
+        task_id=task_id,
+        platform=req.platform,
+        account_id=req.account_id,
+        video_id=req.video_id,
+        title=req.title,
+        tags=req.tags,
+        category=req.category,
+        is_draft=req.is_draft,
+        thumbnail_path=req.thumbnail_path,
+        product_link=req.product_link,
+        product_title=req.product_title,
+        desc=req.desc,
+        cover_path=req.cover_path,
+        is_private=req.is_private,
+        publish_date=req.publish_date,
+        short_title=req.short_title,
+        declare_original=req.declare_original,
+    )
+    return PublishResponse(
+        success=True,
+        message="发布任务已重新提交",
+        task_id=task_id
     )
 
 

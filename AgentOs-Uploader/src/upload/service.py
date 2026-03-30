@@ -4,7 +4,9 @@ import logging
 import os
 import uuid
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
+from datetime import datetime
+
 
 from fastapi import Depends, UploadFile
 
@@ -105,6 +107,30 @@ def _save_accounts(accounts: List[dict]):
     p.parent.mkdir(parents=True, exist_ok=True)
     with open(p, "w", encoding="utf-8") as f:
         json.dump(accounts, f, ensure_ascii=False, indent=2)
+
+
+def _tasks_path() -> Path:
+    return Path(settings.uploader_tasks_file)
+
+
+def _load_tasks() -> List[dict]:
+    _ensure_uploader_dirs()
+    p = _tasks_path()
+    if not p.exists():
+        return []
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, IOError):
+        return []
+
+
+def _save_tasks(tasks: List[dict]):
+    _ensure_uploader_dirs()
+    p = _tasks_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with open(p, "w", encoding="utf-8") as f:
+        json.dump(tasks, f, ensure_ascii=False, indent=2)
 
 
 class UploaderService:
@@ -375,8 +401,38 @@ class UploaderService:
 
         asyncio.run(_do())
 
-    def publish(
+    def create_publish_task(self, task: dict):
+        tasks = _load_tasks()
+        tasks.append(task)
+        _save_tasks(tasks)
+
+    def update_publish_task_status(self, task_id: str, status: str, error_msg: Optional[str] = None):
+        tasks = _load_tasks()
+        for t in tasks:
+            if t["task_id"] == task_id:
+                t["status"] = status
+                if error_msg is not None:
+                    t["error_msg"] = error_msg
+                t["update_time"] = datetime.now().isoformat()
+                break
+        _save_tasks(tasks)
+
+    def get_publish_task(self, task_id: str) -> Optional[dict]:
+        tasks = _load_tasks()
+        for t in tasks:
+            if t["task_id"] == task_id:
+                return t
+        return None
+
+    def list_publish_tasks(self) -> List[dict]:
+        tasks = _load_tasks()
+        # 按照创建时间倒序
+        tasks.sort(key=lambda x: x.get("create_time", ""), reverse=True)
+        return tasks
+
+    def execute_publish_task(
         self,
+        task_id: str,
         platform: str,
         account_id: str,
         video_id: str,
@@ -399,21 +455,27 @@ class UploaderService:
 
         video_path = _resolve_publish_video_path(video_id)
 
-        self._run_publish_sync(
-            platform=platform,
-            account_file=str(cookie_file),
-            video_path=str(video_path),
-            title=title,
-            tags=tags,
-            category=category,
-            is_draft=is_draft,
-            thumbnail_path=thumbnail_path,
-            product_link=product_link,
-            product_title=product_title,
-            desc=desc,
-            cover_path=cover_path,
-            is_private=is_private,
-            publish_date=publish_date,
-            short_title=short_title,
-            declare_original=declare_original,
-        )
+        self.update_publish_task_status(task_id, "running")
+        try:
+            self._run_publish_sync(
+                platform=platform,
+                account_file=str(cookie_file),
+                video_path=str(video_path),
+                title=title,
+                tags=tags,
+                category=category,
+                is_draft=is_draft,
+                thumbnail_path=thumbnail_path,
+                product_link=product_link,
+                product_title=product_title,
+                desc=desc,
+                cover_path=cover_path,
+                is_private=is_private,
+                publish_date=publish_date,
+                short_title=short_title,
+                declare_original=declare_original,
+            )
+            self.update_publish_task_status(task_id, "success")
+        except Exception as e:
+            logger.exception(f"Publish task {task_id} failed: {e}")
+            self.update_publish_task_status(task_id, "failed", error_msg=str(e))
