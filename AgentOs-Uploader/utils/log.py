@@ -16,6 +16,9 @@ class _SimpleLogger:
     def error(self, msg: str):
         _log("ERROR", msg)
 
+    def warning(self, msg: str):
+        _log("WARNING", msg)
+
     def debug(self, msg: str):
         _log("DEBUG", msg)
 

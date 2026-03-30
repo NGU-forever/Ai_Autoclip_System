@@ -31,20 +31,33 @@ def _resolve_account_file(account_file) -> str:
 
 
 async def cookie_auth(account_file):
+    from playwright._impl._errors import TimeoutError as PlaywrightTimeoutError
     resolved = _resolve_account_file(account_file)
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=LOCAL_CHROME_HEADLESS)
-        context = await browser.new_context(storage_state=resolved)
-        context = await set_init_script(context)
-        page = await context.new_page()
-        await page.goto("https://channels.weixin.qq.com/platform/post/create")
         try:
-            await page.wait_for_selector('div.title-name:has-text("微信小店")', timeout=5000)
-            tencent_logger.error("[+] 等待5秒 cookie 失效")
-            return False
-        except:
-            tencent_logger.success("[+] cookie 有效")
-            return True
+            context = await browser.new_context(storage_state=resolved)
+            context = await set_init_script(context)
+            page = await context.new_page()
+            try:
+                # 缩短页面加载超时时间为10秒
+                await page.goto("https://channels.weixin.qq.com/platform/post/create", timeout=10000)
+            except PlaywrightTimeoutError:
+                tencent_logger.warning("[+] 访问视频号平台超时，网络可能不可用")
+                return False
+            except Exception as e:
+                tencent_logger.warning(f"[+] 访问视频号平台失败: {e}")
+                return False
+            try:
+                await page.wait_for_selector('div.title-name:has-text("微信小店")', timeout=5000)
+                tencent_logger.error("[+] 等待5秒 cookie 失效")
+                return False
+            except:
+                tencent_logger.success("[+] cookie 有效")
+                return True
+        finally:
+            await context.close()
+            await browser.close()
 
 
 async def get_tencent_cookie(account_file):

@@ -8,7 +8,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPExcepti
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
 
-from src.auth.jwt_only_dependencies import get_current_user
+from src.auth.jwt_only_dependencies import get_current_user, get_current_user_from_header_or_query
 from src.exceptions import NotFoundException
 from src.upload.schemas import (
     AccountResponse,
@@ -160,6 +160,7 @@ async def get_qr_login_status(
     """
     查询扫码登录状态。
     前端应轮询此接口（建议每2秒一次），直到状态为 success 或失败。
+    登录成功后会自动更新或创建账号（同一平台只保留一个账号，更新 cookie）。
     """
     qr_service = get_qr_login_service()
     task = qr_service.get_task(task_id)
@@ -173,17 +174,13 @@ async def get_qr_login_status(
         platform=task.platform,
     )
     
-    # 如果登录成功：新建账号或返回已绑定的同一 cookie 文件对应账号
+    # 如果登录成功：更新或创建账号（同一平台只保留一个账号）
     if task.status == LoginStatus.SUCCESS and task.cookie_file:
-        existing = service.find_account_by_cookie_file(task.cookie_file)
-        if existing:
-            response.account = existing
-        else:
-            response.account = service.add_account(
-                platform=task.platform,
-                user_name=task.user_name or f"{task.platform}_{task.id[:8]}",
-                cookie_filename=task.cookie_file,
-            )
+        response.account = service.update_account_cookie(
+            platform=task.platform,
+            user_name=task.user_name or f"{task.platform}_{task.id[:8]}",
+            cookie_filename=task.cookie_file,
+        )
     
     if task.error_msg:
         response.error = task.error_msg
@@ -226,7 +223,7 @@ async def upload_video(
 @router.get("/video-stream/{video_id:path}")
 async def stream_video(
     video_id: str,
-    _user: dict = Depends(get_current_user),
+    _user: dict = Depends(get_current_user_from_header_or_query),
 ):
     """按相对 storage 的路径流式返回视频（供前端预览），兼容旧版仅文件名。"""
     path = _resolve_publish_video_path(video_id)
@@ -597,7 +594,7 @@ async def get_persistent_session_status(
 ):
     """
     查询持久化会话的登录状态。
-    登录成功后会自动创建账号。
+    登录成功后会自动更新或创建账号（同一平台只保留一个账号，更新 cookie）。
     """
     manager = await get_persistent_browser_manager()
     session = manager.get_session(session_id)
@@ -611,17 +608,14 @@ async def get_persistent_session_status(
         status=session.status.value,
     )
     
-    # 如果登录成功：新建账号或返回已绑定的同一 cookie 文件对应账号
+    # 如果登录成功：更新或创建账号（同一平台只保留一个账号）
     if session.status == SessionStatus.SUCCESS and session.cookie_file:
-        existing = service.find_account_by_cookie_file(session.cookie_file)
-        if existing:
-            response.account = existing
-        else:
-            response.account = service.add_account(
-                platform=session.platform,
-                user_name=session.user_name or f"{session.platform}_{session.id[:8]}",
-                cookie_filename=session.cookie_file,
-            )
+        # 使用 update_account_cookie 来更新现有账号或创建新账号
+        response.account = service.update_account_cookie(
+            platform=session.platform,
+            user_name=session.user_name or f"{session.platform}_{session.id[:8]}",
+            cookie_filename=session.cookie_file,
+        )
     
     if session.error_msg:
         response.error = session.error_msg

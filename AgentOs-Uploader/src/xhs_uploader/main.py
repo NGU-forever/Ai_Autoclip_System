@@ -11,28 +11,38 @@ from uploader.utils.log import xiaohongshu_logger
 
 
 async def cookie_auth(account_file):
+    from playwright._impl._errors import TimeoutError as PlaywrightTimeoutError
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=LOCAL_CHROME_HEADLESS)
-        context = await browser.new_context(storage_state=account_file)
-        context = await set_init_script(context)
-        # 创建一个新的页面
-        page = await context.new_page()
-        # 访问指定的 URL
-        await page.goto("https://creator.xiaohongshu.com/creator-micro/content/upload")
         try:
-            await page.wait_for_url("https://creator.xiaohongshu.com/creator-micro/content/upload", timeout=5000)
-        except:
-            print("[+] 等待5秒 cookie 失效")
+            context = await browser.new_context(storage_state=account_file)
+            context = await set_init_script(context)
+            # 创建一个新的页面
+            page = await context.new_page()
+            # 访问指定的 URL
+            try:
+                # 缩短页面加载超时时间为10秒
+                await page.goto("https://creator.xiaohongshu.com/creator-micro/content/upload", timeout=10000)
+            except PlaywrightTimeoutError:
+                xiaohongshu_logger.warning("[+] 访问小红书创作者中心超时，网络可能不可用")
+                return False
+            except Exception as e:
+                xiaohongshu_logger.warning(f"[+] 访问小红书创作者中心失败: {e}")
+                return False
+            try:
+                await page.wait_for_url("https://creator.xiaohongshu.com/creator-micro/content/upload", timeout=5000)
+            except:
+                print("[+] 等待5秒 cookie 失效")
+                return False
+            if await page.get_by_text('手机号登录').count() or await page.get_by_text('扫码登录').count():
+                print("[+] 等待5秒 cookie 失效")
+                return False
+            else:
+                print("[+] cookie 有效")
+                return True
+        finally:
             await context.close()
             await browser.close()
-            return False
-        # 2024.06.17 抖音创作者中心改版
-        if await page.get_by_text('手机号登录').count() or await page.get_by_text('扫码登录').count():
-            print("[+] 等待5秒 cookie 失效")
-            return False
-        else:
-            print("[+] cookie 有效")
-            return True
 
 
 async def xiaohongshu_setup(account_file, handle=False):
@@ -289,7 +299,7 @@ class XiaoHongShuVideo(object):
             #     await finish_confirm_element.click()
             # await page.locator("div[class^='footer'] button:has-text('完成')").click()
 
-    async def set_location(self, page: Page, location: str = "青岛市"):
+    async def set_location(self, page: Page, location: str = "广州市"):
         print(f"开始设置位置: {location}")
         
         # 点击地点输入框

@@ -204,6 +204,80 @@ class UploaderService:
         _save_accounts(accounts)
         return AccountResponse(**new_acc)
 
+    def update_account_cookie(
+        self,
+        platform: str,
+        user_name: str,
+        cookie_filename: str,
+    ) -> AccountResponse:
+        """
+        更新或添加账号的 cookie。
+        如果该平台已有账号，则更新现有账号的 cookie 文件和用户名。
+        如果没有，则创建新账号。
+        """
+        _ensure_uploader_dirs()
+        
+        # 查找 cookie 文件（可能在根目录或平台目录）
+        source_path = Path(settings.uploader_cookies_path) / cookie_filename
+        platform_dir = Path(settings.get_platform_cookies_path(platform))
+        platform_cookie_path = platform_dir / cookie_filename
+        
+        # 如果文件不在平台目录，移动过去
+        if source_path.exists() and not platform_cookie_path.exists():
+            if source_path.parent == Path(settings.uploader_cookies_path):
+                import shutil
+                shutil.move(str(source_path), str(platform_cookie_path))
+                logger.info(f"Moved cookie file to platform dir: {platform_cookie_path}")
+        
+        # 检查最终的 cookie 文件路径
+        final_cookie_path = platform_cookie_path if platform_cookie_path.exists() else source_path
+        if not final_cookie_path.exists():
+            raise NotFoundException(f"Cookie 文件不存在: {cookie_filename}")
+
+        accounts = _load_accounts()
+        
+        # 查找该平台是否已有账号
+        existing_account = None
+        for a in accounts:
+            if a.get("platform") == platform:
+                existing_account = a
+                break
+        
+        if existing_account:
+            # 更新现有账号
+            old_cookie_file = existing_account.get("cookie_file")
+            existing_account["user_name"] = user_name
+            existing_account["cookie_file"] = cookie_filename
+            existing_account["status"] = 1
+            _save_accounts(accounts)
+            logger.info(f"Updated existing account {existing_account['id']} for platform {platform}")
+            
+            # 尝试删除旧的 cookie 文件（如果与新文件不同）
+            if old_cookie_file and old_cookie_file != cookie_filename:
+                try:
+                    old_path = platform_dir / old_cookie_file
+                    if old_path.exists():
+                        old_path.unlink()
+                        logger.info(f"Deleted old cookie file: {old_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to delete old cookie file {old_cookie_file}: {e}")
+            
+            return AccountResponse(**existing_account)
+        else:
+            # 创建新账号
+            acc_id = str(uuid.uuid4())
+            new_acc = {
+                "id": acc_id,
+                "platform": platform,
+                "user_name": user_name,
+                "cookie_file": cookie_filename,
+                "status": 1,
+            }
+            accounts.append(new_acc)
+            _save_accounts(accounts)
+            logger.info(f"Created new account {acc_id} for platform {platform}")
+            return AccountResponse(**new_acc)
+
     def delete_account(self, account_id: str) -> bool:
         accounts = _load_accounts()
         filtered = [a for a in accounts if a["id"] != account_id]
@@ -255,24 +329,38 @@ class UploaderService:
         在线程中通过 asyncio.run 执行，供 publish 前置校验。
         """
         _ensure_uploader_dirs()
-        acc = self.get_account(account_id)
+        try:
+            acc = self.get_account(account_id)
+        except NotFoundException:
+            logger.warning(f"Cookie validation failed: account {account_id} not found")
+            return False
         if acc.get("platform") != platform:
+            logger.warning(f"Cookie validation failed: platform mismatch {platform} != {acc.get('platform')}")
             return False
         cookie_path = self._get_cookie_file_path(acc)
         if not cookie_path.is_file():
+            logger.warning(f"Cookie validation failed: cookie file not found {cookie_path}")
             return False
         abs_path = str(cookie_path.resolve())
 
         async def _validate() -> bool:
-            if platform == "douyin":
-                return await douyin_cookie_auth(abs_path)
-            if platform == "tencent":
-                return await tencent_cookie_auth(abs_path)
-            if platform == "xhs":
-                return await xhs_cookie_auth(abs_path)
-            return False
+            try:
+                if platform == "douyin":
+                    return await douyin_cookie_auth(abs_path)
+                if platform == "tencent":
+                    return await tencent_cookie_auth(abs_path)
+                if platform == "xhs":
+                    return await xhs_cookie_auth(abs_path)
+                return False
+            except Exception as e:
+                logger.exception(f"Cookie validation error for {platform}: {e}")
+                return False
 
-        return asyncio.run(_validate())
+        try:
+            return asyncio.run(_validate())
+        except Exception as e:
+            logger.exception(f"Failed to run cookie validation for {platform}: {e}")
+            return False
 
     def list_videos(self) -> List[VideoItem]:
         _ensure_uploader_dirs()
