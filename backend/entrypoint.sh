@@ -10,7 +10,7 @@ RUN_DB_SEED="${RUN_DB_SEED:-true}"
 
 if [ "$RUN_DB_INIT" = "true" ]; then
   echo "▶ Initialising database tables..."
-  python scripts/init_new_tables.py
+  python scripts/init_tables.py
 else
   echo "⏭️ RUN_DB_INIT=false, skip DB init"
 fi
