@@ -42,6 +42,7 @@ import {
   useAccounts,
   usePublish,
   uploadCover,
+  uploadVideo,
   VideoItem,
   Account,
   PublishParams,
@@ -158,27 +159,98 @@ const VideoList: React.FC<{
   selectedVideo: VideoItem | null;
   onSelect: (video: VideoItem) => void;
   loading: boolean;
-}> = ({ videos, selectedVideo, onSelect, loading }) => {
+  onUpload: (file: File) => void;
+  uploading: boolean;
+}> = ({ videos, selectedVideo, onSelect, loading, onUpload, uploading }) => {
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const formatDate = (dateStr?: string) => {
     if (!dateStr) return '未知时间';
     const date = new Date(dateStr);
     return date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const file = e.dataTransfer.files[0];
+      if (file.type.startsWith('video/')) {
+        onUpload(file);
+      } else {
+        // Not a video file might be handled inside the parent, but checking here
+        onUpload(file); // Parent will handle the toast or error if it fails
+      }
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      onUpload(e.target.files[0]);
+    }
+    e.target.value = '';
+  };
+
   return (
-    <div className="h-full flex flex-col os-card overflow-hidden">
-      <div className="p-4 border-b border-border-os-weak">
+    <div 
+      className={`h-full flex flex-col os-card overflow-hidden transition-colors border-2 ${
+        isDragging ? 'border-primary bg-primary/5' : 'border-transparent'
+      }`}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      <div className="p-4 border-b border-border-os-weak flex items-center justify-between">
         <div className="flex items-center gap-2 text-text font-semibold">
           <FileVideo size={18} className="text-primary" />
           视频库
-          <span className="text-xs font-normal text-muted ml-auto">{videos.length} 个视频</span>
+          <span className="text-xs font-normal text-muted ml-1">{videos.length} 个视频</span>
+        </div>
+        <div>
+          <input 
+            type="file" 
+            accept="video/*" 
+            className="hidden" 
+            ref={fileInputRef} 
+            onChange={handleFileChange} 
+            disabled={uploading}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-os-sm bg-surface-2 hover:bg-surface text-primary border border-border-os-weak text-xs font-medium transition-all shadow-sm disabled:opacity-50"
+          >
+            {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+            上传视频
+          </button>
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto p-2 space-y-1">
-        {loading ? (
-          <div className="flex items-center justify-center h-32 text-muted">
-            <RefreshCw size={20} className="animate-spin mr-2" />
-            加载中...
+      
+      {/* 拖拽提示层 */}
+      {isDragging && (
+        <div className="absolute inset-0 z-10 bg-bg/80 backdrop-blur-sm flex flex-col items-center justify-center border-2 border-dashed border-primary rounded-os-md m-2">
+          <Upload size={48} className="text-primary mb-4" />
+          <p className="text-lg font-medium text-text">松开鼠标上传视频</p>
+        </div>
+      )}
+
+      <div className="flex-1 overflow-y-auto p-2 space-y-1 relative">
+        {loading || uploading ? (
+          <div className="flex flex-col items-center justify-center h-48 text-muted mt-8">
+            <Loader2 size={32} className="text-primary animate-spin mb-3" />
+            <span className="text-sm">{uploading ? '正在上传...' : '加载中...'}</span>
           </div>
         ) : videos.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-32 text-muted">
@@ -1586,6 +1658,7 @@ export const VideoDistributor: React.FC = () => {
   const [selectedVideo, setSelectedVideo] = useState<VideoItem | null>(null);
   const [showAccountManager, setShowAccountManager] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [uploadingVideo, setUploadingVideo] = useState(false);
 
   // Initial data load
   useEffect(() => {
@@ -1603,6 +1676,27 @@ export const VideoDistributor: React.FC = () => {
       }
     }
   }, [searchParams, videos]);
+
+  const handleUploadVideo = useCallback(async (file: File) => {
+    // 基础文件类型校验
+    if (!file.type.startsWith('video/')) {
+      showToast('error', '请选择视频文件 (.mp4, .mov, etc)');
+      return;
+    }
+
+    setUploadingVideo(true);
+    try {
+      showToast('info', '开始上传视频...');
+      const result = await uploadVideo(file);
+      showToast('success', '视频上传成功');
+      await fetchVideos(); // 刷新列表
+      setSelectedVideo(result); // 自动选中刚上传的视频
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : '上传视频失败');
+    } finally {
+      setUploadingVideo(false);
+    }
+  }, [fetchVideos, showToast]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -1655,6 +1749,8 @@ export const VideoDistributor: React.FC = () => {
               selectedVideo={selectedVideo}
               onSelect={setSelectedVideo}
               loading={videosLoading}
+              onUpload={handleUploadVideo}
+              uploading={uploadingVideo}
             />
           </div>
 
