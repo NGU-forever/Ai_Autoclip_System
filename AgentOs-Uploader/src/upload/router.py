@@ -4,9 +4,10 @@ import uuid
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
+from src.tasks.publish import publish_video_task
 
 from src.auth.jwt_only_dependencies import get_current_user, get_current_user_from_header_or_query
 from src.exceptions import NotFoundException
@@ -271,13 +272,12 @@ async def upload_cover(
 @router.post("/publish", response_model=PublishResponse)
 async def publish(
     req: PublishRequest,
-    background_tasks: BackgroundTasks,
     _user: dict = Depends(get_current_user),
     service: UploaderService = Depends(get_uploader_service),
 ):
     """
-    提交发布任务（后台执行）。
-    抖音/视频号会打开浏览器完成上传，请确保环境已安装 Playwright Chromium。
+    提交发布任务（Celery 持久化队列执行）。
+    任务由独立的 Celery Worker 容器执行，API 容器重启不影响任务执行。
     """
     try:
         cookie_ok = await run_in_threadpool(
@@ -317,8 +317,9 @@ async def publish(
     }
     service.create_publish_task(task_data)
 
-    background_tasks.add_task(
-        service.execute_publish_task,
+    # 使用 Celery 持久化任务队列替代 FastAPI.BackgroundTasks
+    # .delay() 将任务异步投递到 Redis Broker，由 uploader-worker 容器负责执行
+    publish_video_task.delay(
         task_id=task_id,
         platform=req.platform,
         account_id=req.account_id,
@@ -339,7 +340,7 @@ async def publish(
     )
     return PublishResponse(
         success=True,
-        message="发布任务已提交，正在后台执行",
+        message="发布任务已提交至持久化任务队列，正在后台执行",
         task_id=task_id
     )
 
@@ -370,21 +371,18 @@ async def get_publish_task(
 @router.post("/publish/tasks/{task_id}/retry", response_model=PublishResponse)
 async def retry_publish_task(
     task_id: str,
-    background_tasks: BackgroundTasks,
     _user: dict = Depends(get_current_user),
     service: UploaderService = Depends(get_uploader_service),
 ):
-    """重试失败的发布任务"""
+    """重试失败的发布任务（重新投递到 Celery 持久化队列）"""
     task = service.get_publish_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
-    if task["status"] not in ("failed", "success", "running"): # Can retry actually anything if needed, but let's allow it in general
-        pass
 
     req_data = task.get("request_data", {})
     if not req_data:
         raise HTTPException(status_code=400, detail="任务缺少原始请求数据，无法重试")
-    
+
     from src.upload.schemas import PublishRequest
     req = PublishRequest(**req_data)
 
@@ -410,16 +408,11 @@ async def retry_publish_task(
             },
         )
 
-    # 重新生成一个新的任务记录还是复用当前任务ID？由于用户可能用 task_id 查询最新状态，最好生成新任务。
-    # 为了保持 API 简单，我们直接重用原 task_id 进行覆盖更新
+    # 重置任务状态为 pending，重新投递到 Celery 持久化队列
     from datetime import datetime
-    task["status"] = "pending"
-    task["error_msg"] = None
-    task["update_time"] = datetime.now().isoformat()
     service.update_publish_task_status(task_id, "pending")
 
-    background_tasks.add_task(
-        service.execute_publish_task,
+    publish_video_task.delay(
         task_id=task_id,
         platform=req.platform,
         account_id=req.account_id,
@@ -440,7 +433,7 @@ async def retry_publish_task(
     )
     return PublishResponse(
         success=True,
-        message="发布任务已重新提交",
+        message="发布任务已重新提交至持久化任务队列",
         task_id=task_id
     )
 

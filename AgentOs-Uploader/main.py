@@ -36,6 +36,12 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting uploader service...")
+    # Task Reconciler: 将上次异常退出遗留的 running 任务重置为 failed
+    # 避免这些任务永久"卡住"而无法重试
+    from src.upload.service import UploaderService
+    stale = UploaderService().reconcile_stale_tasks()
+    if stale:
+        logger.warning("Reconciler 重置了 %d 个孤儿任务，用户可通过 /retry 重新发布。", stale)
     yield
     logger.info("Shutting down uploader service...")
 

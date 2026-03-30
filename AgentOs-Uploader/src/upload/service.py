@@ -518,6 +518,37 @@ class UploaderService:
         tasks.sort(key=lambda x: x.get("create_time", ""), reverse=True)
         return tasks
 
+    def reconcile_stale_tasks(self) -> int:
+        """
+        任务对齐（Task Reconciler）：服务启动时调用。
+        将所有处于 `running` 状态的任务标记为 `failed`。
+
+        背景：`running` 状态意味着一个 Celery Worker 正在执行该任务。
+        如果 Worker 容器重启，对应的任务进程会被终止，但 JSON 文件中的状态仍为 `running`，
+        形成"孤儿任务"。Reconciler 在启动时自动清理这些孤儿任务，避免状态永久卡住。
+
+        用户随后可以通过 /retry 接口重新提交这些失败的任务。
+
+        Returns:
+            int: 被重置的任务数量
+        """
+        tasks = _load_tasks()
+        stale_count = 0
+        for t in tasks:
+            if t.get("status") == "running":
+                t["status"] = "failed"
+                t["error_msg"] = "服务重启，任务被中断。请通过重试接口重新发布。"
+                t["update_time"] = datetime.now().isoformat()
+                stale_count += 1
+        if stale_count > 0:
+            _save_tasks(tasks)
+            logger.warning(
+                "Task Reconciler: 发现并重置了 %d 个孤儿 running 任务 → failed", stale_count
+            )
+        else:
+            logger.info("Task Reconciler: 无孤儿任务，状态干净。")
+        return stale_count
+
     def execute_publish_task(
         self,
         task_id: str,

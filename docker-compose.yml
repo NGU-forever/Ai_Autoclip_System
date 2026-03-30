@@ -55,11 +55,14 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-b2b_user}:${POSTGRES_PASSWORD:-b2b_password}@db:5432/${POSTGRES_DB:-b2b_db}
       UPLOADER_HEADLESS: "true"
+      REDIS_URL: redis://redis:6379/0
     volumes:
       - ./storage:/app/storage
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_started
     healthcheck:
       test:
         [
@@ -72,6 +75,43 @@ services:
       timeout: 6s
       retries: 5
       start_period: 120s
+
+  # ----------------------------------------------------------
+  # uploader-worker: Celery Worker —— 持久化发布任务执行器
+  # 与 uploader 共享同一镜像，仅覆盖启动命令。
+  # 关键说明：
+  #   --pool=solo   : Playwright 依赖 asyncio 事件循环，prefork(默认) 会 fork 进程破坏 loop，须用 solo
+  #   --concurrency=1: 同一时间最多 1 个 Playwright Chromium，防止 OOM（每个约 300MB）
+  # ----------------------------------------------------------
+  uploader-worker:
+    build:
+      context: ./AgentOs-Uploader
+      dockerfile: Dockerfile
+      args:
+        APT_USE_TENCENT_MIRROR: ${APT_USE_TENCENT_MIRROR:-0}
+        VITE_LOGIN_PAGE_URL: ${VITE_LOGIN_PAGE_URL:-http://localhost/login}
+        VITE_MAIN_APP_ORIGIN: ${VITE_MAIN_APP_ORIGIN:-http://localhost}
+    command: >
+      celery -A src.tasks.celery_app.celery_app worker
+      --loglevel=info
+      --concurrency=1
+      --pool=solo
+      --hostname=uploader-worker@%h
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-b2b_user}:${POSTGRES_PASSWORD:-b2b_password}@db:5432/${POSTGRES_DB:-b2b_db}
+      UPLOADER_HEADLESS: "true"
+      REDIS_URL: redis://redis:6379/0
+      PYTHONPATH: /app:/app/uploader
+    volumes:
+      - ./storage:/app/storage
+    depends_on:
+      redis:
+        condition: service_started
+      uploader:
+        condition: service_healthy
 
   # ----------------------------------------------------------
   # web: FastAPI (auth + Storyline)
