@@ -1,7 +1,5 @@
 FROM pzm2mntd3t74vneyhy.xuanyuan.run/node:20.19.4-alpine AS web-builder
 
-ENV NPM_CONFIG_REGISTRY=https://mirrors.cloud.tencent.com/npm/
-
 WORKDIR /web
 COPY web/package.json ./
 RUN npm install
@@ -29,7 +27,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 ARG APT_USE_TENCENT_MIRROR=1
-RUN if [ "$APT_USE_TENCENT_MIRROR" = "1" ] && [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+RUN if [ "$APT_USE_TENCENT_MIRROR" = "1" ]; then \
       sed -i 's/deb.debian.org/mirrors.tencentyun.com/g' /etc/apt/sources.list.d/debian.sources && \
       sed -i 's/security.debian.org/mirrors.tencentyun.com/g' /etc/apt/sources.list.d/debian.sources; \
     fi && \

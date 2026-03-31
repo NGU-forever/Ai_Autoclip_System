@@ -1,8 +1,5 @@
 FROM pzm2mntd3t74vneyhy.xuanyuan.run/node:20.19.4-alpine AS webbuilder
 
-ENV NPM_CONFIG_REGISTRY=https://mirrors.cloud.tencent.com/npm/ \
-    YARN_REGISTRY=https://mirrors.cloud.tencent.com/npm/
-
 WORKDIR /build/web
 COPY web/package.json web/package-lock.json* ./
 RUN npm ci 2>/dev/null || npm install
@@ -27,7 +24,7 @@ COPY requirements.txt .
 # 腾讯云内网 apt 加速（本地 / 非腾讯云构建勿开：mirrors.tencentyun.com 外网不可达）
 ARG APT_USE_TENCENT_MIRROR=1
 # 安装依赖
-RUN if [ "$APT_USE_TENCENT_MIRROR" = "1" ] && [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+RUN if [ "$APT_USE_TENCENT_MIRROR" = "1" ]; then \
       sed -i 's/deb.debian.org/mirrors.tencentyun.com/g' /etc/apt/sources.list.d/debian.sources && \
       sed -i 's/security.debian.org/mirrors.tencentyun.com/g' /etc/apt/sources.list.d/debian.sources; \
     fi && \
