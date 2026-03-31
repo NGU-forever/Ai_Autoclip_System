@@ -56,8 +56,16 @@ async def cookie_auth(account_file):
                 tencent_logger.success("[+] cookie 有效")
                 return True
         finally:
-            await context.close()
-            await browser.close()
+            try:
+                if "context" in locals() and context:
+                    await context.close()
+            except:
+                pass
+            try:
+                if "browser" in locals() and browser:
+                    await browser.close()
+            except:
+                pass
 
 
 async def get_tencent_cookie(account_file):
