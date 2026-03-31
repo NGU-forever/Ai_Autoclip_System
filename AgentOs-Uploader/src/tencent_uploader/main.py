@@ -65,12 +65,17 @@ async def get_tencent_cookie(account_file):
         options = {'args': ['--lang en-GB'], 'headless': LOCAL_CHROME_HEADLESS}
         browser = await playwright.chromium.launch(**options)
         context = await browser.new_context()
-        context = await set_init_script(context)
-        page = await context.new_page()
-        await page.goto("https://channels.weixin.qq.com")
-        await page.pause()
-        await context.storage_state(path=account_file)
-
+        try:
+            context = await set_init_script(context)
+            page = await context.new_page()
+            await page.goto("https://channels.weixin.qq.com")
+            await page.pause()
+            await context.storage_state(path=account_file)
+        finally:
+            if context:
+                await context.close()
+            if browser:
+                await browser.close()
 
 async def weixin_setup(account_file, handle=False):
     resolved = _resolve_account_file(account_file)
@@ -128,26 +133,30 @@ class TencentVideo(object):
     async def upload(self, playwright: Playwright) -> None:
         browser = await playwright.chromium.launch(headless=self.headless, executable_path=self.local_executable_path)
         context = await browser.new_context(storage_state=f"{self.account_file}")
-        context = await set_init_script(context)
-        page = await context.new_page()
-        await page.goto("https://channels.weixin.qq.com/platform/post/create")
-        tencent_logger.info(f'[+]正在上传-------{self.title}.mp4')
-        await page.wait_for_url("https://channels.weixin.qq.com/platform/post/create")
-        file_input = page.locator('input[type="file"]')
-        await file_input.set_input_files(self.file_path)
-        await self.add_title_tags(page)
-        await self.add_collection(page)
-        await self.add_original(page)
-        await self.detect_upload_status(page)
-        if self.publish_date != 0:
-            await self.set_schedule_time_tencent(page, self.publish_date)
-        await self.add_short_title(page)
-        await self.click_publish(page)
-        await context.storage_state(path=f"{self.account_file}")
-        tencent_logger.success('  [-]cookie更新完毕!')
-        await asyncio.sleep(2)
-        await context.close()
-        await browser.close()
+        try:
+            context = await set_init_script(context)
+            page = await context.new_page()
+            await page.goto("https://channels.weixin.qq.com/platform/post/create")
+            tencent_logger.info(f'[+]正在上传-------{self.title}.mp4')
+            await page.wait_for_url("https://channels.weixin.qq.com/platform/post/create")
+            file_input = page.locator('input[type="file"]')
+            await file_input.set_input_files(self.file_path)
+            await self.add_title_tags(page)
+            await self.add_collection(page)
+            await self.add_original(page)
+            await self.detect_upload_status(page)
+            if self.publish_date != 0:
+                await self.set_schedule_time_tencent(page, self.publish_date)
+            await self.add_short_title(page)
+            await self.click_publish(page)
+            await context.storage_state(path=f"{self.account_file}")
+            tencent_logger.success('  [-]cookie更新完毕!')
+            await asyncio.sleep(2)
+        finally:
+            if context:
+                await context.close()
+            if browser:
+                await browser.close()
 
     async def add_short_title(self, page):
         short_title_element = page.get_by_text("短标题", exact=True).locator("..").locator(
