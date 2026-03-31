@@ -2,7 +2,7 @@
 from datetime import datetime
 from pathlib import Path
 
-from playwright.async_api import Playwright, async_playwright
+from playwright.async_api import Playwright, async_playwright, Browser
 import os
 import asyncio
 
@@ -130,8 +130,13 @@ class TencentVideo(object):
         file_input = page.locator('input[type="file"]')
         await file_input.set_input_files(self.file_path)
 
-    async def upload(self, playwright: Playwright) -> None:
-        browser = await playwright.chromium.launch(headless=self.headless, executable_path=self.local_executable_path)
+    async def upload(self, playwright: Playwright = None, browser: Browser = None) -> None:
+        close_browser_when_done = False
+        if browser is None:
+            if not playwright:
+                raise ValueError("You must provide either 'playwright' or 'browser'")
+            close_browser_when_done = True
+            browser = await playwright.chromium.launch(headless=self.headless, executable_path=self.local_executable_path)
         context = await browser.new_context(storage_state=f"{self.account_file}")
         try:
             context = await set_init_script(context)
@@ -155,7 +160,7 @@ class TencentVideo(object):
         finally:
             if context:
                 await context.close()
-            if browser:
+            if close_browser_when_done and browser:
                 await browser.close()
 
     async def add_short_title(self, page):
@@ -259,6 +264,9 @@ class TencentVideo(object):
             if await page.locator('button:has-text("声明原创"):visible').count():
                 await page.locator('button:has-text("声明原创"):visible').click()
 
-    async def main(self):
-        async with async_playwright() as playwright:
-            await self.upload(playwright)
+    async def main(self, browser: Browser = None):
+        if browser:
+            await self.upload(browser=browser)
+        else:
+            async with async_playwright() as playwright:
+                await self.upload(playwright=playwright)

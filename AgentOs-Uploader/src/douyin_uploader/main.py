@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from datetime import datetime
 
-from playwright.async_api import Playwright, async_playwright, Page
+from playwright.async_api import Playwright, async_playwright, Page, Browser
 import os
 import asyncio
 
@@ -100,11 +100,16 @@ class DouYinVideo(object):
         douyin_logger.info('视频出错了，重新上传中')
         await page.locator('div.progress-div [class^="upload-btn-input"]').set_input_files(self.file_path)
 
-    async def upload(self, playwright: Playwright) -> None:
-        if self.local_executable_path:
-            browser = await playwright.chromium.launch(headless=self.headless, executable_path=self.local_executable_path)
-        else:
-            browser = await playwright.chromium.launch(headless=self.headless)
+    async def upload(self, playwright: Playwright = None, browser: Browser = None) -> None:
+        close_browser_when_done = False
+        if browser is None:
+            if not playwright:
+                raise ValueError("You must provide either 'playwright' or 'browser'")
+            close_browser_when_done = True
+            if self.local_executable_path:
+                browser = await playwright.chromium.launch(headless=self.headless, executable_path=self.local_executable_path)
+            else:
+                browser = await playwright.chromium.launch(headless=self.headless)
         context = await browser.new_context(storage_state=f"{self.account_file}")
         try:
             context = await set_init_script(context)
@@ -202,7 +207,7 @@ class DouYinVideo(object):
         finally:
             if context:
                 await context.close()
-            if browser:
+            if close_browser_when_done and browser:
                 await browser.close()
 
     async def handle_auto_video_cover(self, page):
@@ -297,6 +302,9 @@ class DouYinVideo(object):
             douyin_logger.error(f"[-] 设置商品链接时出错: {str(e)}")
             return False
 
-    async def main(self):
-        async with async_playwright() as playwright:
-            await self.upload(playwright)
+    async def main(self, browser: Browser = None):
+        if browser:
+            await self.upload(browser=browser)
+        else:
+            async with async_playwright() as playwright:
+                await self.upload(playwright=playwright)
