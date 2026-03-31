@@ -41,6 +41,7 @@ checkpoints/
 uploads/*
 exports/*
 storage/
+!AgentOs-OpenStoryline/src/open_storyline/storage
 !uploads/.gitkeep
 !exports/.gitkeep
 
