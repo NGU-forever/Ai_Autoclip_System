@@ -11,6 +11,9 @@ downloads/
 eggs/
 .eggs/
 lib/
+# Python lib/ 规则会忽略任意 **/lib/；放行 Uploader 前端工具模块
+!AgentOs-Uploader/web/src/lib/
+!AgentOs-Uploader/web/src/lib/**
 lib64/
 parts/
 sdist/
