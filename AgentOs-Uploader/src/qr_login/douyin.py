@@ -68,8 +68,15 @@ class DouyinLogin(BasePlatformLogin):
                     delay_sec=2.5,
                     log_label=f"Douyin QR task {task.id} goto",
                 )
-                # 抖音登录弹层与二维码绘制明显慢于视频号/小红书，多等一会再截码
-                await asyncio.sleep(2.8)
+                # 等待登录弹层出现（canvas 或登录相关文案），替代固定 sleep(2.8)
+                try:
+                    await page.wait_for_selector(
+                        "canvas, text=扫码登录, text=二维码",
+                        state="visible",
+                        timeout=15000,
+                    )
+                except Exception:
+                    pass  # 如果元素未出现，继续⎳图逻辑（_prime 会尝试切换模式）
 
                 logger.info(f"Page loaded: {await page.title()} - {page.url}")
 
@@ -91,99 +98,90 @@ class DouyinLogin(BasePlatformLogin):
 
                 logger.info("QR code generated, waiting for scan...")
 
-                # 轮询检测登录状态（最多5分钟）
+                # 使用 wait_for_url 等待登录成功，同时开启扫码状态检测任务
+                login_url_patterns = [
+                    "creator-micro/content/upload",
+                    "creator.douyin.com/creator-micro",
+                    "creator.douyin.com/home",
+                    "creator.douyin.com/dashboard",
+                ]
+
+                # 开启扫码检测后台任务
                 scan_detected = False
-                for i in range(300):  # 300 * 1秒 = 5分钟
-                    await asyncio.sleep(1)
 
-                    # 检查是否已登录（使用多种 URL 模式匹配）
-                    current_url = page.url
-
-                    # 每5秒记录一次当前 URL，用于调试
-                    if i % 5 == 0 or i < 5:
-                        logger.info(f"[Douyin] Polling {i}s, URL: {current_url}")
-
-                    login_success_patterns = [
-                        "creator-micro/content/upload",
-                        "creator.douyin.com/creator-micro",
-                        "creator.douyin.com/home",
-                        "creator.douyin.com/dashboard",
-                    ]
-                    is_logged_in = any(pattern in current_url for pattern in login_success_patterns)
-
-                    # 如果 URL 匹配，再检查是否有登录态的 DOM 元素或 Cookie
-                    if is_logged_in:
-                        logger.info(f"[Douyin] URL matched login pattern: {current_url}")
-                        # 检查登录态 DOM 元素
-                        dom_found = False
-                        try:
-                            user_selectors = [
-                                '.user-name', '.nickname', '[class*="userName"]',
-                                '[class*="avatar"]', '.user-info'
-                            ]
-                            for selector in user_selectors:
-                                element = await page.query_selector(selector)
-                                if element and await element.is_visible():
-                                    dom_found = True
-                                    logger.info(f"[Douyin] DOM element found: {selector}")
-                                    break
-                        except Exception as e:
-                            logger.debug(f"[Douyin] DOM check error: {e}")
-
-                        # URL 匹配即认为登录成功，不强制要求 DOM 元素
-                        logger.info(f"Douyin login success detected, URL: {current_url}")
-                        # 登录成功，保存到抖音目录
-                        cookie_filename = f"{uuid.uuid4().hex}.json"
-                        platform_cookies_path = Path(settings.get_platform_cookies_path("douyin"))
-                        platform_cookies_path.mkdir(parents=True, exist_ok=True)
-                        cookie_path = platform_cookies_path / cookie_filename
-                        await context.storage_state(path=str(cookie_path))
-
-                        # 尝试获取用户名
-                        try:
-                            user_name = await page.evaluate("""
-                                () => {
-                                    const selectors = ['.user-name', '.nickname', '[class*="userName"]', '[class*="user-name"]'];
-                                    for (const s of selectors) {
-                                        const el = document.querySelector(s);
-                                        if (el && el.textContent.trim()) return el.textContent.trim();
-                                    }
-                                    return null;
-                                }
-                            """)
-                        except:
-                            user_name = None
-
-                        task.status = LoginStatus.SUCCESS
-                        task.cookie_file = cookie_filename
-                        task.user_name = user_name or f"抖音账号_{task.id[:8]}"
-                        break
-
-                    # 检测已扫码状态（每隔 3 秒检查一次）
-                    if not scan_detected and i % 3 == 0:
+                async def _monitor_scan():
+                    nonlocal scan_detected
+                    for _ in range(300):
+                        if scan_detected or task.status not in (
+                            LoginStatus.PENDING, LoginStatus.READY
+                        ):
+                            return
                         try:
                             page_text = await page.content()
-                            scan_indicators = ['已扫码', '扫描成功', '请在手机上确认', '确认登录']
-                            if any(ind in page_text for ind in scan_indicators):
+                            if any(x in page_text for x in ['\u5df2\u626b\u7801', '\u626b\u63cf\u6210\u529f', '\u8bf7\u5728\u624b\u673a\u4e0a\u786e\u8ba4', '\u786e\u8ba4\u767b\u5f55']):
                                 scan_detected = True
                                 task.status = LoginStatus.SCANNING
-                                logger.info(f"Douyin QR code scanned, waiting for confirmation")
-                        except:
+                                logger.info("Douyin QR code scanned, waiting for confirmation")
+                                return
+                        except Exception:
                             pass
+                        await asyncio.sleep(2)
 
-                    # 检查二维码是否过期
+                scan_task = asyncio.create_task(_monitor_scan())
+                try:
+                    # 等待登录成功 URL（最多 5 分钟）
+                    await page.wait_for_function(
+                        """
+                        () => {
+                            const url = window.location.href;
+                            return [
+                                'creator-micro/content/upload',
+                                'creator.douyin.com/creator-micro',
+                                'creator.douyin.com/home',
+                                'creator.douyin.com/dashboard',
+                            ].some(p => url.includes(p));
+                        }
+                        """,
+                        timeout=300_000,
+                    )
+                    current_url = page.url
+                    logger.info(f"Douyin login success detected, URL: {current_url}")
+
+                    cookie_filename = f"{uuid.uuid4().hex}.json"
+                    platform_cookies_path = Path(settings.get_platform_cookies_path("douyin"))
+                    platform_cookies_path.mkdir(parents=True, exist_ok=True)
+                    cookie_path = platform_cookies_path / cookie_filename
+                    await context.storage_state(path=str(cookie_path))
+
                     try:
-                        expired_text = await page.query_selector("text='二维码已过期'")
-                        if expired_text:
-                            task.status = LoginStatus.EXPIRED
-                            logger.warning(f"Douyin QR code expired")
-                            break
-                    except:
+                        user_name = await page.evaluate("""
+                            () => {
+                                const selectors = ['.user-name', '.nickname', '[class*="userName"]', '[class*="user-name"]'];
+                                for (const s of selectors) {
+                                    const el = document.querySelector(s);
+                                    if (el && el.textContent.trim()) return el.textContent.trim();
+                                }
+                                return null;
+                            }
+                        """)
+                    except Exception:
+                        user_name = None
+
+                    task.status = LoginStatus.SUCCESS
+                    task.cookie_file = cookie_filename
+                    task.user_name = user_name or f"抖音账号_{task.id[:8]}"
+
+                except Exception as e:
+                    logger.warning(f"Douyin login wait_for_function ended: {e}")
+                    if task.status not in (LoginStatus.SUCCESS, LoginStatus.SCANNING):
+                        task.status = LoginStatus.EXPIRED
+                        task.error_msg = "登录超时，请重试"
+                finally:
+                    scan_task.cancel()
+                    try:
+                        await scan_task
+                    except asyncio.CancelledError:
                         pass
-                else:
-                    # 超时
-                    task.status = LoginStatus.EXPIRED
-                    task.error_msg = "登录超时，请重试"
 
             except Exception as e:
                 logger.error(f"Error in Douyin QR login: {str(e)}")

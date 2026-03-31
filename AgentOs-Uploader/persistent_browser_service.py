@@ -46,7 +46,7 @@ class SessionStatus(Enum):
 class PersistentSession:
     """持久化浏览器会话"""
     id: str
-    platform: str  # douyin, tencent
+    platform: str  # douyin, tencent, xhs
     status: SessionStatus
     browser: Optional[Browser] = None
     context: Optional[BrowserContext] = None
@@ -59,6 +59,8 @@ class PersistentSession:
     last_heartbeat: float = field(default_factory=time.time)
     qr_ready: asyncio.Event = field(default_factory=asyncio.Event)
     _login_success_event: asyncio.Event = field(default_factory=asyncio.Event)
+    # Phase 2+4: 显式跟踪所有后台任务，关闭时统一取消
+    _background_tasks: set = field(default_factory=set)
 
 
 class PersistentBrowserManager:
@@ -128,6 +130,13 @@ class PersistentBrowserManager:
         os.makedirs(qr_dir, exist_ok=True)
         return qr_dir
     
+    def _track_task(self, session: PersistentSession, coro) -> asyncio.Task:
+        """创建并追踪一个后台任务，任务完成后自动从集合移除。"""
+        task = asyncio.create_task(coro)
+        session._background_tasks.add(task)
+        task.add_done_callback(session._background_tasks.discard)
+        return task
+
     async def create_session(self, platform: str) -> PersistentSession:
         """创建新的持久化会话"""
         async with self._lock:
@@ -151,8 +160,8 @@ class PersistentBrowserManager:
             )
             self.sessions[session_id] = session
             
-            # 启动异步任务初始化浏览器
-            asyncio.create_task(self._init_browser(session))
+            # 启动异步任务初始化浏览器，并显式跟踪
+            self._track_task(session, self._init_browser(session))
             
             logger.info(f"Created persistent session {session_id} for platform {platform}")
             return session
@@ -207,10 +216,22 @@ class PersistentBrowserManager:
             logger.debug("dispose: playwright stop: %s", e)
         setattr(session, "_playwright", None)
     
-    async def _init_douyin(self, session: PersistentSession):
-        """初始化抖音浏览器"""
-        logger.info(f"Initializing Douyin browser for session {session.id}")
-
+    # ─────────────────────────────────────────────────────────────────
+    # Phase 2: 共享浏览器初始化基础方法
+    # ─────────────────────────────────────────────────────────────────
+    async def _init_browser_context(
+        self,
+        session: PersistentSession,
+        url: str,
+        log_label: str,
+        *,
+        attach_speed_routes: bool = False,
+    ) -> Page:
+        """
+        共享浏览器初始化逻辑：启动 Playwright -> Browser -> Context -> Page -> goto。
+        各平台只需传入目标 URL，平台特有逻辑（捕获二维码）在调用方实现。
+        返回已加载就绪的 Page 对象。
+        """
         playwright = await async_playwright().start()
         session._playwright = playwright
 
@@ -230,31 +251,47 @@ class PersistentBrowserManager:
             ),
         )
         context = await set_init_script(context)
-        await attach_douyin_speed_routes(context)
+        if attach_speed_routes:
+            await attach_douyin_speed_routes(context)
         session.context = context
 
         page = await context.new_page()
         session.page = page
 
+        await goto_with_retry(
+            page,
+            url,
+            wait_until="domcontentloaded",
+            timeout=60000,
+            retries=3,
+            delay_sec=2.5,
+            log_label=log_label,
+        )
+        return page
+
+    async def _init_douyin(self, session: PersistentSession):
+        """初始化抖音浏览器"""
+        logger.info(f"Initializing Douyin browser for session {session.id}")
         try:
-            logger.info("Navigating to Douyin creator page")
-            await goto_with_retry(
-                page,
+            page = await self._init_browser_context(
+                session,
                 "https://creator.douyin.com/",
-                wait_until="domcontentloaded",
-                timeout=60000,
-                retries=3,
-                delay_sec=2.5,
                 log_label=f"Douyin session {session.id} goto",
+                attach_speed_routes=True,
             )
-            await asyncio.sleep(2.8)
+            # 等待登录弹层出现（替代固定 sleep(2.8)）
+            try:
+                await page.wait_for_selector(
+                    "canvas, text=扫码登录, text=二维码",
+                    state="visible",
+                    timeout=15000,
+                )
+            except Exception:
+                pass  # 若未找到则继续截图流程（_prime 会尝试切换模式）
 
-            # 捕获二维码
             await self._capture_douyin_qr(session)
-
             self._attach_login_monitors(session)
-            # 开始轮询登录状态
-            asyncio.create_task(self._poll_login_status(session))
+            self._track_task(session, self._poll_login_status(session))
 
         except Exception as e:
             logger.error(f"Error during Douyin initialization: {e}")
@@ -287,52 +324,26 @@ class PersistentBrowserManager:
     async def _init_tencent(self, session: PersistentSession):
         """初始化视频号浏览器"""
         logger.info(f"Initializing Tencent browser for session {session.id}")
-        
-        playwright = await async_playwright().start()
-        session._playwright = playwright
-        
-        launch_options = merge_chromium_launch_options({"headless": True})
-        if LOCAL_CHROME_PATH:
-            launch_options["executable_path"] = LOCAL_CHROME_PATH
-        
-        browser = await playwright.chromium.launch(**launch_options)
-        session.browser = browser
-        
-        context = await browser.new_context(
-            viewport={"width": 1280, "height": 800},
-            locale="zh-CN",
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-            ),
-        )
-        context = await set_init_script(context)
-        session.context = context
-        
-        page = await context.new_page()
-        session.page = page
-        
         try:
-            login_url = "https://channels.weixin.qq.com/login.html"
-            logger.info(f"Navigating to {login_url}")
-            await goto_with_retry(
-                page,
-                login_url,
-                wait_until="domcontentloaded",
-                timeout=60000,
-                retries=3,
-                delay_sec=2.5,
+            page = await self._init_browser_context(
+                session,
+                "https://channels.weixin.qq.com/login.html",
                 log_label=f"Tencent session {session.id} goto",
             )
-            await asyncio.sleep(1)
-            
-            # 捕获二维码
-            await self._capture_tencent_qr(session)
+            # 等待登录元素出现（替代固定 sleep）
+            try:
+                await page.wait_for_selector(
+                    "canvas, img[src*='qr'], .wx-login-qrcode",
+                    state="visible",
+                    timeout=10000,
+                )
+            except Exception:
+                pass
 
+            await self._capture_tencent_qr(session)
             self._attach_login_monitors(session)
-            # 开始轮询登录状态
-            asyncio.create_task(self._poll_login_status(session))
-            
+            self._track_task(session, self._poll_login_status(session))
+
         except Exception as e:
             logger.error(f"Error during Tencent initialization: {e}")
             session.status = SessionStatus.FAILED
@@ -365,53 +376,20 @@ class PersistentBrowserManager:
     async def _init_xhs(self, session: PersistentSession):
         """初始化小红书浏览器"""
         logger.info(f"Initializing XiaoHongShu browser for session {session.id}")
-        
-        playwright = await async_playwright().start()
-        session._playwright = playwright
-        
-        launch_options = merge_chromium_launch_options({"headless": True})
-        if LOCAL_CHROME_PATH:
-            launch_options["executable_path"] = LOCAL_CHROME_PATH
-        
-        browser = await playwright.chromium.launch(**launch_options)
-        session.browser = browser
-        
-        context = await browser.new_context(
-            viewport={"width": 1280, "height": 800},
-            locale="zh-CN",
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-            ),
-        )
-        context = await set_init_script(context)
-        session.context = context
-        
-        page = await context.new_page()
-        session.page = page
-        
         try:
-            logger.info("Navigating to XiaoHongShu creator page")
-            await goto_with_retry(
-                page,
+            page = await self._init_browser_context(
+                session,
                 "https://creator.xiaohongshu.com/",
-                wait_until="domcontentloaded",
-                timeout=60000,
-                retries=3,
-                delay_sec=2.5,
                 log_label=f"XHS session {session.id} goto",
             )
             qr_svc = get_qr_login_service()
             await qr_svc._wait_xhs_login_ui(page)
             await qr_svc._switch_xhs_to_scan_qr_mode(page)
 
-            # 捕获二维码
             await self._capture_xhs_qr(session)
-
             self._attach_login_monitors(session)
-            # 开始轮询登录状态
-            asyncio.create_task(self._poll_login_status(session))
-            
+            self._track_task(session, self._poll_login_status(session))
+
         except Exception as e:
             logger.error(f"Error during XiaoHongShu initialization: {e}")
             session.status = SessionStatus.FAILED
@@ -883,7 +861,15 @@ class PersistentBrowserManager:
                     delay_sec=2.5,
                     log_label=f"Douyin refresh {session_id} goto",
                 )
-                await asyncio.sleep(2.8)
+                # 等待登录弹层出现再截码（替代固定 sleep）
+                try:
+                    await session.page.wait_for_selector(
+                        "canvas, text=扫码登录, text=二维码",
+                        state="visible",
+                        timeout=15000,
+                    )
+                except Exception:
+                    pass
                 await self._capture_douyin_qr(session)
             elif session.platform == "tencent":
                 logger.info(f"Reloading Tencent page for session {session_id}")
@@ -993,6 +979,15 @@ class PersistentBrowserManager:
             return
         
         logger.info(f"Closing persistent session {session_id}")
+
+        # 取消所有跟踪的后台任务
+        for task in list(getattr(session, "_background_tasks", set())):
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass
 
         probe = getattr(session, "_login_probe_task", None)
         if probe and not probe.done():

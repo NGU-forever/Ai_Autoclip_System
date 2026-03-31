@@ -67,7 +67,15 @@ class TencentLogin(BasePlatformLogin):
                     delay_sec=2.5,
                     log_label=f"Tencent QR task {task.id} goto",
                 )
-                await asyncio.sleep(0.6)
+                # 等待登录弹层/二维码元素出现，替代固定 sleep(0.6)
+                try:
+                    await page.wait_for_selector(
+                        "canvas, img[src*='qr'], .wx-login-qrcode",
+                        state="visible",
+                        timeout=10000,
+                    )
+                except Exception:
+                    pass  # 元素未出现也继续截展逻辑
 
                 logger.info(f"Page loaded: {await page.title()} - {page.url}")
 
@@ -89,50 +97,67 @@ class TencentLogin(BasePlatformLogin):
 
                 logger.info("QR code generated, waiting for scan...")
 
-                # 轮询检测登录状态（最多5分钟）
+                # 开启扫码状态检测后台任务
                 scan_detected = False
-                for i in range(300):
-                    await asyncio.sleep(1)
 
-                    # 检查是否已登录（使用多种 URL 模式匹配）
-                    current_url = page.url
-                    login_success_patterns = [
-                        "platform/post/create",
-                        "platform/post/list",
-                        "#/platform",
-                        "#/creator",
-                        "channels.weixin.qq.com/platform",
-                    ]
-                    is_logged_in = any(pattern in current_url for pattern in login_success_patterns)
-
-                    if is_logged_in and "login.html" not in current_url:
-                        logger.info(f"Tencent login success detected, URL: {current_url}")
-                        # 登录成功，保存到视频号目录
-                        cookie_filename = f"{uuid.uuid4().hex}.json"
-                        platform_cookies_path = Path(settings.get_platform_cookies_path("tencent"))
-                        platform_cookies_path.mkdir(parents=True, exist_ok=True)
-                        cookie_path = platform_cookies_path / cookie_filename
-                        await context.storage_state(path=str(cookie_path))
-
-                        task.status = LoginStatus.SUCCESS
-                        task.cookie_file = cookie_filename
-                        task.user_name = f"视频号_{task.id[:8]}"
-                        break
-
-                    # 检测已扫码状态（每隔 3 秒检查一次）
-                    if not scan_detected and i % 3 == 0:
+                async def _monitor_scan():
+                    nonlocal scan_detected
+                    for _ in range(150):
+                        if scan_detected:
+                            return
                         try:
                             page_text = await page.content()
-                            scan_indicators = ['已扫码', '扫描成功', '请在手机上确认', '确认登录']
-                            if any(ind in page_text for ind in scan_indicators):
+                            if any(x in page_text for x in ['\u5df2\u626b\u7801', '\u626b\u63cf\u6210\u529f', '\u8bf7\u5728\u624b\u673a\u4e0a\u786e\u8ba4', '\u786e\u8ba4\u767b\u5f55']):
                                 scan_detected = True
                                 task.status = LoginStatus.SCANNING
-                                logger.info(f"Tencent QR code scanned, waiting for confirmation")
-                        except:
+                                logger.info("Tencent QR code scanned, waiting for confirmation")
+                                return
+                        except Exception:
                             pass
-                else:
-                    task.status = LoginStatus.EXPIRED
-                    task.error_msg = "登录超时，请重试"
+                        await asyncio.sleep(2)
+
+                scan_task = asyncio.create_task(_monitor_scan())
+                try:
+                    await page.wait_for_function(
+                        """
+                        () => {
+                            const url = window.location.href;
+                            if (url.includes('login.html')) {
+                                const hash = url.split('#')[1] || '';
+                                return hash.includes('platform') || hash.includes('creator') || hash.includes('post');
+                            }
+                            return [
+                                'platform/post/create', 'platform/post/list',
+                                'channels.weixin.qq.com/platform',
+                            ].some(p => url.includes(p));
+                        }
+                        """,
+                        timeout=300_000,
+                    )
+                    current_url = page.url
+                    logger.info(f"Tencent login success detected, URL: {current_url}")
+
+                    cookie_filename = f"{uuid.uuid4().hex}.json"
+                    platform_cookies_path = Path(settings.get_platform_cookies_path("tencent"))
+                    platform_cookies_path.mkdir(parents=True, exist_ok=True)
+                    cookie_path = platform_cookies_path / cookie_filename
+                    await context.storage_state(path=str(cookie_path))
+
+                    task.status = LoginStatus.SUCCESS
+                    task.cookie_file = cookie_filename
+                    task.user_name = f"视频号_{task.id[:8]}"
+
+                except Exception as e:
+                    logger.warning(f"Tencent login wait_for_function ended: {e}")
+                    if task.status not in (LoginStatus.SUCCESS, LoginStatus.SCANNING):
+                        task.status = LoginStatus.EXPIRED
+                        task.error_msg = "登录超时，请重试"
+                finally:
+                    scan_task.cancel()
+                    try:
+                        await scan_task
+                    except asyncio.CancelledError:
+                        pass
 
             except Exception as e:
                 logger.error(f"Error in Tencent QR login: {str(e)}")

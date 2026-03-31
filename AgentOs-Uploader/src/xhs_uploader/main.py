@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 from datetime import datetime
 
-from playwright.async_api import Playwright, async_playwright, Page, Browser
+from playwright.async_api import Playwright, async_playwright, Page, Browser, TimeoutError as PlaywrightTimeoutError
 import os
 import asyncio
 
 from uploader.conf import LOCAL_CHROME_PATH, LOCAL_CHROME_HEADLESS
 from uploader.utils.base_social_media import set_init_script
 from uploader.utils.log import xiaohongshu_logger
+from src.selectors import XHS_SELECTORS
 
 
 async def cookie_auth(account_file):
@@ -112,31 +113,29 @@ class XiaoHongShuVideo(object):
         self.is_private = is_private
 
     async def set_schedule_time_xiaohongshu(self, page, publish_date):
-        print("  [-] 正在设置定时发布时间...")
-        print(f"publish_date: {publish_date}")
+        xiaohongshu_logger.info("  [-] 正在设置定时发布时间...")
+        xiaohongshu_logger.info(f"publish_date: {publish_date}")
 
-        # 使用文本内容定位元素
-        # element = await page.wait_for_selector(
-        #     'label:has-text("定时发布")',
-        #     timeout=5000  # 5秒超时时间
-        # )
-        # await element.click()
-
-        # # 选择包含特定文本内容的 label 元素
         label_element = page.locator("label:has-text('定时发布')")
-        # # 在选中的 label 元素下点击 checkbox
+        await label_element.wait_for(state="visible", timeout=8000)
         await label_element.click()
-        await asyncio.sleep(1)
-        publish_date_hour = publish_date.strftime("%Y-%m-%d %H:%M")
-        print(f"publish_date_hour: {publish_date_hour}")
 
-        await asyncio.sleep(1)
-        await page.locator('.el-input__inner[placeholder="选择日期和时间"]').click()
+        publish_date_hour = publish_date.strftime("%Y-%m-%d %H:%M")
+        xiaohongshu_logger.info(f"publish_date_hour: {publish_date_hour}")
+
+        # 等待时间选择器出现后再交互
+        date_input = page.locator('.el-input__inner[placeholder="选择日期和时间"]')
+        await date_input.wait_for(state="visible", timeout=6000)
+        await date_input.click()
         await page.keyboard.press("Control+KeyA")
         await page.keyboard.type(str(publish_date_hour))
         await page.keyboard.press("Enter")
 
-        await asyncio.sleep(1)
+        # 等待输入框值更新而不是盲目 sleep
+        await page.wait_for_function(
+            f"() => document.querySelector('.el-input__inner[placeholder=\"选择日期和时间\"]')?.value?.includes('{publish_date_hour[:7]}')",
+            timeout=5000,
+        )
 
     async def handle_upload_error(self, page):
         xiaohongshu_logger.info('视频出错了，重新上传中')
@@ -168,56 +167,47 @@ class XiaoHongShuVideo(object):
             xiaohongshu_logger.info(f'[+]正在上传-------{self.title}.mp4')
             # 等待页面跳转到指定的 URL，没进入，则自动等待到超时
             xiaohongshu_logger.info(f'[-] 正在打开主页...')
-            await page.wait_for_url("https://creator.xiaohongshu.com/publish/publish?from=homepage&target=video")
+            await page.wait_for_url("https://creator.xiaohongshu.com/publish/publish?from=homepage&target=video", timeout=30000)
             # 点击 "上传视频" 按钮
             await page.locator("div[class^='upload-content'] input[class='upload-input']").set_input_files(self.file_path)
 
-            # 等待页面跳转到指定的 URL 2025.01.08修改在原有基础上兼容两种页面
-            while True:
-                try:
-                    # 等待upload-input元素出现
-                    upload_input = await page.wait_for_selector('input.upload-input', timeout=3000)
-                    # 获取下一个兄弟元素
-                    preview_new = await upload_input.query_selector(
-                        'xpath=following-sibling::div[contains(@class, "preview-new")]')
-                    if preview_new:
-                        # 在preview-new元素中查找包含"上传成功"的stage元素
-                        stage_elements = await preview_new.query_selector_all('div.stage')
-                        upload_success = False
-                        for stage in stage_elements:
-                            text_content = await page.evaluate('(element) => element.textContent', stage)
-                            if '上传成功' in text_content:
-                                upload_success = True
-                                break
-                        if upload_success:
-                            xiaohongshu_logger.info("[+] 检测到上传成功标识!")
-                            break  # 成功检测到上传成功后跳出循环
-                        else:
-                            print("  [-] 未找到上传成功标识，继续等待...")
-                    else:
-                        print("  [-] 未找到预览元素，继续等待...")
-                        await asyncio.sleep(1)
-                except Exception as e:
-                    print(f"  [-] 检测过程出错: {str(e)}，重新尝试...")
-                    await asyncio.sleep(0.5)  # 等待0.5秒后重新尝试
+            # 等待上传成功标识（状态驱动，无固定 sleep）
+            # 视频处理可能较慢，给 10 分钟超时
+            try:
+                await page.wait_for_function(
+                    """
+                    () => {
+                        const stages = document.querySelectorAll('div.stage');
+                        for (const s of stages) {
+                            if (s.textContent && s.textContent.includes('上传成功')) return true;
+                        }
+                        return false;
+                    }
+                    """,
+                    timeout=600_000,  # 10 分钟
+                )
+                xiaohongshu_logger.info("[+] 检测到上传成功标识!")
+            except PlaywrightTimeoutError:
+                xiaohongshu_logger.warning("[+] 等待上传成功超时，尝试继续...")
 
-            # 填充标题和话题
-            # 检查是否存在包含输入框的元素
-            # 这里为了避免页面变化，故使用相对位置定位：作品标题父级右侧第一个元素的input子元素
-            await asyncio.sleep(1)
+            # 填充标题和话题（等待编辑区域可见后再交互）
             xiaohongshu_logger.info(f'  [-] 正在填充标题和话题...')
-            title_container = page.locator('div.plugin.title-container').locator('input.d-text')
-            if await title_container.count():
+            title_container = page.locator(XHS_SELECTORS["title_input"])
+            try:
+                await title_container.wait_for(state="visible", timeout=8000)
                 await title_container.fill(self.title[:30])
-            else:
+            except PlaywrightTimeoutError:
+                xiaohongshu_logger.info("  [-] title_input 不可见，尝试备选 notranslate 选择器")
                 titlecontainer = page.locator(".notranslate")
+                await titlecontainer.wait_for(state="visible", timeout=8000)
                 await titlecontainer.click()
-                await page.keyboard.press("Backspace")
                 await page.keyboard.press("Control+KeyA")
                 await page.keyboard.press("Delete")
                 await page.keyboard.type(self.title)
                 await page.keyboard.press("Enter")
-            css_selector = ".ql-editor"  # 不能加上 .ql-blank 属性，这样只能获取第一次非空状态
+            css_selector = XHS_SELECTORS["desc_editor"]
+            # 等待描述编辑框可见
+            await page.wait_for_selector(css_selector, state="visible", timeout=8000)
             if self.desc:
                 await page.click(css_selector)
                 await page.keyboard.type(self.desc)
@@ -278,28 +268,27 @@ class XiaoHongShuVideo(object):
             if self.publish_date != 0:
                 await self.set_schedule_time_xiaohongshu(page, self.publish_date)
 
-            # 判断视频是否发布成功
-            while True:
+            # 等待发布按钮可见并点击，然后等待跳转成功页
+            btn_text = "定时发布" if self.publish_date != 0 else "发布"
+            publish_btn = page.locator(XHS_SELECTORS["publish_button"].format(btn_text=btn_text))
+            await publish_btn.wait_for(state="visible", timeout=15000)
+            # 重试点击，直到成功跳转（平台可能有延迟渲染）
+            for _attempt in range(10):
                 try:
-                    # 等待包含"定时发布"文本的button元素出现并点击
-                    if self.publish_date != 0:
-                        await page.locator('button:has-text("定时发布")').click()
-                    else:
-                        await page.locator('button:has-text("发布")').click()
+                    await publish_btn.click()
                     await page.wait_for_url(
                         "https://creator.xiaohongshu.com/publish/success?**",
-                        timeout=3000
-                    )  # 如果自动跳转到作品页面，则代表发布成功
+                        timeout=4000,
+                    )
                     xiaohongshu_logger.success("  [-]视频发布成功")
                     break
-                except:
-                    xiaohongshu_logger.info("  [-] 视频正在发布中...")
-                    await page.screenshot(full_page=True)
-                    await asyncio.sleep(0.5)
+                except PlaywrightTimeoutError:
+                    xiaohongshu_logger.info("  [-] 视频正在发布中，等待跳转...")
+            else:
+                raise RuntimeError("发布操作超时，请检查页面状态")
 
             await context.storage_state(path=self.account_file)  # 保存cookie
             xiaohongshu_logger.success('  [-]cookie更新完毕！')
-            await asyncio.sleep(2)  # 这里延迟是为了方便眼睛直观的观看
         finally:
             if context:
                 await context.close()
@@ -309,17 +298,17 @@ class XiaoHongShuVideo(object):
     async def set_thumbnail(self, page: Page, thumbnail_path: str):
         if thumbnail_path:
             await page.click('text="选择封面"')
-            await page.wait_for_selector("div.semi-modal-content:visible")
+            # 等待模态框出现（状态驱动，无固定 sleep）
+            await page.wait_for_selector("div.semi-modal-content", state="visible", timeout=8000)
             await page.click('text="设置竖封面"')
-            await page.wait_for_timeout(2000)  # 等待2秒
-            # 定位到上传区域并点击
-            await page.locator("div[class^='semi-upload upload'] >> input.semi-upload-hidden-input").set_input_files(thumbnail_path)
-            await page.wait_for_timeout(2000)  # 等待2秒
-            await page.locator("div[class^='extractFooter'] button:visible:has-text('完成')").click()
-            # finish_confirm_element = page.locator("div[class^='confirmBtn'] >> div:has-text('完成')")
-            # if await finish_confirm_element.count():
-            #     await finish_confirm_element.click()
-            # await page.locator("div[class^='footer'] button:has-text('完成')").click()
+            # 等待文件上传组件就绪
+            upload_input = page.locator(XHS_SELECTORS["thumbnail_upload_input"])
+            await upload_input.wait_for(state="attached", timeout=8000)
+            await upload_input.set_input_files(thumbnail_path)
+            # 等待"完成"按钮可见并点击
+            finish_btn = page.locator(XHS_SELECTORS["thumbnail_finish_button"])
+            await finish_btn.wait_for(state="visible", timeout=10000)
+            await finish_btn.click()
 
     async def set_location(self, page: Page, location: str = "广州市"):
         print(f"开始设置位置: {location}")
