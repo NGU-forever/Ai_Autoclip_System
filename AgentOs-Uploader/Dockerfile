@@ -1,6 +1,6 @@
 FROM pzm2mntd3t74vneyhy.xuanyuan.run/node:20.19.4-alpine AS web-builder
 
-ENV NPM_CONFIG_REGISTRY=https://registry.npmmirror.com
+ENV NPM_CONFIG_REGISTRY=https://mirrors.cloud.tencent.com/npm/
 
 WORKDIR /web
 COPY web/package.json ./
@@ -13,13 +13,13 @@ ENV VITE_LOGIN_PAGE_URL=$VITE_LOGIN_PAGE_URL
 ENV VITE_MAIN_APP_ORIGIN=$VITE_MAIN_APP_ORIGIN
 RUN npm run build
 
-FROM pzm2mntd3t74vneyhy.xuanyuan.run/python:3.11-slim
+FROM mirror.ccs.tencentyun.com/library/python:3.11-slim
 
-ENV NPM_CONFIG_REGISTRY=https://registry.npmmirror.com \
-    PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/ \
-    PIP_TRUSTED_HOST=mirrors.aliyun.com \
+ENV NPM_CONFIG_REGISTRY=https://mirrors.cloud.tencent.com/npm/ \
+    PIP_INDEX_URL=https://mirrors.cloud.tencent.com/pypi/simple/ \
+    PIP_TRUSTED_HOST=mirrors.cloud.tencent.com \
     GOPROXY=https://goproxy.cn,direct \
-    YARN_REGISTRY=https://registry.npmmirror.com \
+    YARN_REGISTRY=https://mirrors.cloud.tencent.com/npm/ \
     HF_ENDPOINT=https://hf-mirror.com
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

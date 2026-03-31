@@ -4,11 +4,11 @@
 FROM pzm2mntd3t74vneyhy.xuanyuan.run/node:20.19.4-alpine AS builder
 
 # 轩辕镜像优化：加速依赖下载
-ENV NPM_CONFIG_REGISTRY=https://registry.npmmirror.com \
-    PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/ \
-    PIP_TRUSTED_HOST=mirrors.aliyun.com \
+ENV NPM_CONFIG_REGISTRY=https://mirrors.cloud.tencent.com/npm/ \
+    PIP_INDEX_URL=https://mirrors.cloud.tencent.com/pypi/simple/ \
+    PIP_TRUSTED_HOST=mirrors.cloud.tencent.com \
     GOPROXY=https://goproxy.cn,direct \
-    YARN_REGISTRY=https://registry.npmmirror.com \
+    YARN_REGISTRY=https://mirrors.cloud.tencent.com/npm/ \
     HF_ENDPOINT=https://hf-mirror.com
 
 # 设置工作目录
@@ -33,7 +33,7 @@ ENV VITE_OPENSTORYLINE_QIANKUN_ENTRY=$VITE_OPENSTORYLINE_QIANKUN_ENTRY
 RUN npm run build
 
 # 生产镜像
-FROM pzm2mntd3t74vneyhy.xuanyuan.run/nginx:1.27.2-alpine AS production
+FROM mirror.ccs.tencentyun.com/library/nginx:1.27.2-alpine AS production
 
 # 复制构建产物到 Nginx 目录
 COPY --from=builder /app/dist /usr/share/nginx/html

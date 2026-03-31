@@ -1,7 +1,7 @@
 FROM pzm2mntd3t74vneyhy.xuanyuan.run/node:20.19.4-alpine AS webbuilder
 
-ENV NPM_CONFIG_REGISTRY=https://registry.npmmirror.com \
-    YARN_REGISTRY=https://registry.npmmirror.com
+ENV NPM_CONFIG_REGISTRY=https://mirrors.cloud.tencent.com/npm/ \
+    YARN_REGISTRY=https://mirrors.cloud.tencent.com/npm/
 
 WORKDIR /build/web
 COPY web/package.json web/package-lock.json* ./
@@ -9,14 +9,14 @@ RUN npm ci 2>/dev/null || npm install
 COPY web/ ./
 RUN npm run build
 
-FROM pzm2mntd3t74vneyhy.xuanyuan.run/python:3.11-slim
+FROM mirror.ccs.tencentyun.com/library/python:3.11-slim
 
 # 轩辕镜像优化：加速依赖下载
-ENV NPM_CONFIG_REGISTRY=https://registry.npmmirror.com \
+ENV NPM_CONFIG_REGISTRY=https://mirrors.cloud.tencent.com/npm/ \
     PIP_INDEX_URL=https://mirrors.cloud.tencent.com/pypi/simple/ \
     PIP_TRUSTED_HOST=mirrors.cloud.tencent.com \
     GOPROXY=https://goproxy.cn,direct \
-    YARN_REGISTRY=https://registry.npmmirror.com \
+    YARN_REGISTRY=https://mirrors.cloud.tencent.com/npm/ \
     HF_ENDPOINT=https://hf-mirror.com
 
 # 设置工作目录

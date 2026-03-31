@@ -1,11 +1,11 @@
 FROM pzm2mntd3t74vneyhy.xuanyuan.run/python:3.11-slim
 
 # 轩辕镜像优化：加速依赖下载
-ENV NPM_CONFIG_REGISTRY=https://registry.npmmirror.com \
-    PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/ \
-    PIP_TRUSTED_HOST=mirrors.aliyun.com \
+ENV NPM_CONFIG_REGISTRY=https://mirrors.cloud.tencent.com/npm/ \
+    PIP_INDEX_URL=https://mirrors.cloud.tencent.com/pypi/simple/ \
+    PIP_TRUSTED_HOST=mirrors.cloud.tencent.com \
     GOPROXY=https://goproxy.cn,direct \
-    YARN_REGISTRY=https://registry.npmmirror.com \
+    YARN_REGISTRY=https://mirrors.cloud.tencent.com/npm/ \
     HF_ENDPOINT=https://hf-mirror.com
 
 # Prevent Python from writing .pyc files and buffer stdout/stderr
