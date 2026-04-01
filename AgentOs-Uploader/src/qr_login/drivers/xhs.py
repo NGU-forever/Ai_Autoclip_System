@@ -160,7 +160,29 @@ class XHSDriver(BaseQRDriver):
     
     async def _switch_to_scan_qr_mode(self, page: Page) -> None:
         """切换到扫码登录模式"""
-        # 尝试点击扫码登录 tab
+        try:
+            success = await page.evaluate("""() => {
+                const imgs = Array.from(document.querySelectorAll('img'));
+                for (const img of imgs) {
+                    if (img.src && img.src.includes('data:image/png')) {
+                        const rect = img.getBoundingClientRect();
+                        // 切换按钮通常较小 (64x64), 二维码通常较大 (160x160+)
+                        if (rect.width > 0 && rect.width < 100) {
+                            img.click();
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            }""")
+            if success:
+                logger.info("XHS switched to QR mode via evaluated click")
+                await asyncio.sleep(0.5)
+                return
+        except Exception as e:
+            logger.debug(f"XHS QR evaluate click failed: {e}")
+
+        # Fallback 1: 尝试点击扫码登录 tab
         try:
             qr_tab = page.get_by_text("扫码登录", exact=False)
             if await qr_tab.count() > 0:
@@ -170,7 +192,7 @@ class XHSDriver(BaseQRDriver):
         except Exception:
             pass
         
-        # 尝试找二维码图标
+        # Fallback 2: 尝试找二维码图标
         try:
             qr_icon = page.locator("[class*='qr'], [class*='scan']").first
             if await qr_icon.is_visible(timeout=2000):
