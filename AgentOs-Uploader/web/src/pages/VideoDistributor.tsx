@@ -397,7 +397,7 @@ const QRLoginModal: React.FC<{
   const [qrImageLoaded, setQrImageLoaded] = useState(false);
   const [qrLoadError, setQrLoadError] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  // Phase 3: 移除 intervalRef（不再使用轮询）
   const qrRetryCountRef = useRef(0);
   /** 用户点击「刷新二维码」后，等图片 onLoad 再提示成功，避免接口返回快但图未就绪时误显「已刷新」 */
   const refreshSuccessPendingRef = useRef(false);
@@ -451,13 +451,6 @@ const QRLoginModal: React.FC<{
       setQrImageUrl(null);
       setLocalStatus(initError ? 'idle' : 'loading');
     }
-
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-    };
   }, [isOpen, platform, persistentSession, initError]);
 
   useEffect(() => {
@@ -471,24 +464,47 @@ const QRLoginModal: React.FC<{
     setQrImageLoaded(false);
   }, [qrImageUrl]);
 
+  // Phase 3: 使用 WebSocket 实时推送，移除轮询
+  // 监听 persistentSession.status 变化，同步到 localStatus
   useEffect(() => {
-    if (
-      persistentSession?.sessionId &&
-      localStatus === 'waiting' &&
-      persistentSession.status !== 'initializing' &&
-      !isRefreshing
+    if (!persistentSession?.sessionId) return;
+    
+    // 当状态从外部（WebSocket）更新时，同步本地状态
+    if (persistentSession.status === 'success' && localStatus !== 'success') {
+      setLocalStatus('success');
+      // 登录成功，触发回调
+      pollStatusAndHandleSuccess();
+    } else if (persistentSession.status === 'scanning' && localStatus !== 'scanned') {
+      setLocalStatus('scanned');
+    } else if (
+      (persistentSession.status === 'failed' || persistentSession.status === 'expired') &&
+      localStatus !== 'failed'
     ) {
-      intervalRef.current = setInterval(() => {
-        pollStatus();
-      }, 2000);
+      setLocalStatus('failed');
+    } else if (persistentSession.status === 'ready' && localStatus === 'loading') {
+      setLocalStatus('waiting');
     }
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-    };
-  }, [persistentSession?.sessionId, persistentSession?.status, localStatus, platform, isRefreshing]);
+  }, [persistentSession?.status, persistentSession?.sessionId]);
 
+  // 登录成功时获取完整状态（包括账号信息）
+  const pollStatusAndHandleSuccess = async () => {
+    if (!platform || !onCheckStatus) return;
+    try {
+      const status = await onCheckStatus(platform);
+      if (status?.status === 'success') {
+        if (status.account) {
+          onSuccess(status.account);
+        } else {
+          await onAccountsRefresh?.();
+          handleClose();
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to get success status:', error);
+    }
+  };
+
+  // 保留 pollStatus 作为手动检查（WebSocket fallback）
   const pollStatus = async () => {
     if (!platform || !onCheckStatus) return;
     try {
@@ -514,10 +530,7 @@ const QRLoginModal: React.FC<{
   };
 
   const handleClose = () => {
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
+    // Phase 3: 移除 interval 清理（不再使用轮询）
     clearRefreshSuccessTimer();
     refreshSuccessPendingRef.current = false;
     setLocalStatus('idle');
