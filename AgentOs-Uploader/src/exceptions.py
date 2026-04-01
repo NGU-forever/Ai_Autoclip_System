@@ -1,6 +1,7 @@
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
 import logging
+from .exception_handler import ErrorResponse, UploaderException, UploadException, SessionException, PlatformException
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,11 @@ async def app_exception_handler(request: Request, exc: AppException):
     )
     return JSONResponse(
         status_code=exc.status_code,
-        content={"detail": exc.message, "request_id": request_id},
+        content=ErrorResponse(
+            code=f"APP_{exc.status_code}",
+            message=exc.message,
+            details={"request_id": request_id}
+        ).to_dict()
     )
 
 
@@ -54,5 +59,9 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"detail": "Internal server error", "request_id": request_id},
+        content=ErrorResponse(
+            code="INTERNAL_ERROR",
+            message="Internal server error",
+            details={"request_id": request_id}
+        ).to_dict()
     )
