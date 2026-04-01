@@ -67,10 +67,10 @@ async def add_account(
     需先通过 Playwright 扫码登录获取 storage_state，保存为 JSON 后上传。
     Cookie 文件将保存到对应平台目录：cookies/{platform}/
     """
-    from src.config import settings
+    from src.config_manager import config_manager
 
     # 确保平台目录存在
-    platform_cookies_path = Path(settings.get_platform_cookies_path(platform))
+    platform_cookies_path = Path(config_manager.get_platform_config(platform)["cookies_path"])
     platform_cookies_path.mkdir(parents=True, exist_ok=True)
     
     ext = Path(file.filename or "cookie.json").suffix or ".json"
@@ -250,7 +250,7 @@ async def upload_cover(
     上传封面图片（抖音/小红书）。
     返回保存的文件路径，用于发布时指定封面。
     """
-    from src.config import settings
+    from src.config_manager import config_manager
     import os
     
     os.makedirs(settings.uploader_video_path, exist_ok=True)

@@ -10,7 +10,7 @@ from datetime import datetime
 
 from fastapi import Depends, UploadFile
 
-from src.config import settings
+from src.config_manager import config_manager
 from src.douyin_uploader import douyin_setup, DouYinVideo
 from src.douyin_uploader.main import cookie_auth as douyin_cookie_auth
 from src.tencent_uploader import weixin_setup, TencentVideo
@@ -44,7 +44,7 @@ def _safe_video_path_under_storage(video_id: str) -> Path:
     将 API 中的 video_id 解析为 storage_root 下的绝对路径，禁止跳出 storage。
     video_id 为相对 storage_root 的路径（posix），例如 openstoryline/server_cache/.../a.mp4
     """
-    root = Path(settings.storage_root).resolve()
+    root = Path(config_manager.get("storage_root")).resolve()
     if not video_id or video_id.strip() != video_id:
         raise NotFoundException("视频不存在")
     rel = Path(video_id)
@@ -67,26 +67,26 @@ def _resolve_publish_video_path(video_id: str) -> Path:
             return p
     except NotFoundException:
         pass
-    flat_uploader = Path(settings.uploader_video_path) / video_id
+    flat_uploader = Path(config_manager.get("uploader_video_path")) / video_id
     if flat_uploader.is_file() and ".." not in Path(video_id).parts:
         return flat_uploader.resolve()
-    flat_exports = Path(settings.exports_path) / video_id
+    flat_exports = Path(config_manager.get("exports_path")) / video_id
     if flat_exports.is_file() and ".." not in Path(video_id).parts:
         return flat_exports.resolve()
     raise NotFoundException(f"视频不存在: {video_id}")
 
 
 def _accounts_path() -> Path:
-    return Path(settings.uploader_accounts_file)
+    return Path(config_manager.get("uploader_accounts_file"))
 
 
 def _ensure_uploader_dirs():
     """确保上传相关目录存在"""
-    os.makedirs(settings.uploader_cookies_path, exist_ok=True)
-    os.makedirs(settings.uploader_video_path, exist_ok=True)
+    os.makedirs(config_manager.get("uploader_cookies_path"), exist_ok=True)
+    os.makedirs(config_manager.get("uploader_video_path"), exist_ok=True)
     # 创建各平台的 cookie 目录
     for platform in ["douyin", "tencent", "xhs"]:
-        os.makedirs(settings.get_platform_cookies_path(platform), exist_ok=True)
+        os.makedirs(config_manager.get_platform_config(platform)["cookies_path"], exist_ok=True)
 
 
 def _load_accounts() -> List[dict]:
@@ -110,7 +110,7 @@ def _save_accounts(accounts: List[dict]):
 
 
 def _tasks_path() -> Path:
-    return Path(settings.uploader_tasks_file)
+    return Path(config_manager.get("uploader_tasks_file"))
 
 
 def _load_tasks() -> List[dict]:
@@ -365,7 +365,7 @@ class UploaderService:
     def list_videos(self) -> List[VideoItem]:
         _ensure_uploader_dirs()
         items = []
-        root = Path(settings.storage_root).resolve()
+        root = Path(config_manager.get("storage_root")).resolve()
         seen_paths: set[str] = set()
 
         scan_specs: List[tuple[Path, bool]] = [
@@ -406,7 +406,7 @@ class UploaderService:
             content = file.file.read()
             f.write(content)
         size_mb = dest.stat().st_size / (1024 * 1024)
-        root = Path(settings.storage_root).resolve()
+        root = Path(config_manager.get("storage_root")).resolve()
         rel_id = dest.resolve().relative_to(root).as_posix()
         return VideoItem(
             id=rel_id,
