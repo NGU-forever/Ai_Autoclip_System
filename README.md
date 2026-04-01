@@ -1,227 +1,408 @@
-# AgentOS — AI 视频自动化剪辑系统
+# AgentOS — AI 视频自动化剪辑与发布系统
+
+> 一站式AI视频自动化解决方案：从智能剪辑到多平台自动发布，让视频内容创作和分发自动化。
+
+[![Python Version](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
+[![Node.js Version](https://img.shields.io/badge/node-18%2B-green.svg)](https://nodejs.org/)
+[![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://www.docker.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## 📝 项目概述
 
-AgentOS 是一款 AI 自动化视频剪辑系统。项目采用前后端分离架构，基于 Docker 容器化部署。
+AgentOS 是一个完整的AI视频自动化解决方案，包含两个核心子系统：
 
-**架构说明**：前端直接对接 OpenStoryline 服务进行视频剪辑，后端仅提供认证和用户管理服务。
+1. **AgentOS - AI视频自动化剪辑系统**：基于OpenStoryline的智能视频剪辑平台
+2. **AgentOS Uploader - 视频自动上传服务**：支持多平台（抖音、视频号、小红书）的自动化视频发布
 
----
+通过前后端分离架构和容器化部署，AgentOS 提供从视频素材处理到多平台发布的全流程自动化解决方案。
+
+## 🏗️ 系统架构
+
+### 整体架构图
+
+```
++-------------------+     +-------------------+     +-------------------+
+|  AgentOS Frontend | <-> |   AgentOS Backend | <-> |  OpenStoryline    |
+| (React + Vite)    |     | (FastAPI)         |     | (Video Editor)    |
++-------------------+     +-------------------+     +-------------------+
+         |                        |                        |
+         |                        |                        |
+         v                        v                        v
++-------------------+     +-------------------+     +-------------------+
+|  AgentOS Uploader | <-> |   PostgreSQL      | <-> |   Redis           |
+| (Python + FastAPI) |     | (Database)        |     | (Cache)           |
++-------------------+     +-------------------+     +-------------------+
+```
+
+### 子系统关系
+
+- **AgentOS 剪辑系统**：负责视频智能剪辑和用户管理
+- **AgentOS Uploader**：负责视频多平台自动发布
+- **数据共享**：两个子系统共享同一PostgreSQL数据库和Redis缓存
+- **前端集成**：通过微前端架构在同一界面中展示两个系统的功能
 
 ## ✨ 核心特性
 
-### 🔐 认证与授权
-- JWT Token 认证
-- 基于角色的访问控制 (RBAC)：admin / user / viewer
+### 🎬 AI视频剪辑
 
-### 🏗️ 简洁架构
-- 后端仅保留核心功能：认证 + 用户管理
-- 前端直接调用 OpenStoryline API 进行视频剪辑
+- **智能剪辑**：基于OpenStoryline的AI驱动视频编辑
+- **多格式支持**：支持各种视频格式的智能处理
+- **实时预览**：剪辑过程实时预览和进度监控
+- **模板系统**：可配置的剪辑模板和预设
 
----
+### 📱 多平台自动发布
+
+- **平台支持**：抖音、视频号、小红书等主流平台
+- **账号管理**：多账号统一管理和状态监控
+- **会话持久化**：浏览器会话管理和Cookie自动续期
+- **任务队列**：智能任务调度和并发控制
+
+### 🔐 统一用户管理
+
+- **单点登录**：统一的认证和授权系统
+- **角色控制**：基于RBAC的权限管理
+- **数据隔离**：用户数据和任务的隔离管理
+
+### 🚀 容器化部署
+
+- **Docker Compose**：一键部署整个系统
+- **微服务架构**：各组件独立部署和扩展
+- **数据持久化**：自动化的数据备份和恢复
 
 ## 🚀 技术栈
 
-**前端技术**
-- React 19 + TypeScript + Vite
-- Tailwind CSS + Framer Motion
-- Matx 组件库
+### 核心技术
 
-**后端技术**
-- FastAPI + Python 3.11+
-- psycopg2 (PostgreSQL)
+- **后端**：FastAPI (Python 3.11+)
+- **前端**：React 19 + TypeScript + Vite
+- **数据库**：PostgreSQL 15
+- **缓存**：Redis 7+
+- **视频编辑**：OpenStoryline
+- **自动化**：Playwright + Celery
 
-**数据库**
-- PostgreSQL 15（用户数据）
+### 基础设施
 
-**基础设施**
-- Nginx 反向代理
-- Docker 容器化部署
+- **容器化**：Docker + Docker Compose
+- **反向代理**：Nginx
+- **任务队列**：Celery
+- **实时通信**：WebSocket + SSE
 
-**外部服务**
-- OpenStoryline (:7860/:8001) - 视频剪辑引擎
+## 🏢 系统组件
 
----
+### 1. AgentOS 剪辑系统
 
-## 🏢 后端架构
+- **前端**：React + TypeScript + Vite
+- **后端**：FastAPI (认证 + 用户管理)
+- **视频编辑**：OpenStoryline (:7860/:8001)
+- **端口**：80 (用户端), 81 (管理端), 8000 (API)
 
-当前后端为极简架构，仅保留认证模块：
+### 2. AgentOS Uploader
 
-```
-backend/
-├── src/
-│   ├── main.py              # FastAPI 应用入口
-│   ├── config.py            # 配置管理
-│   ├── database.py          # 数据库连接池
-│   ├── exceptions.py        # 全局异常处理
-│   ├── auth/                # 认证模块
-│   │   ├── router.py        # 登录接口
-│   │   ├── service.py       # 认证逻辑
-│   │   ├── dependencies.py  # JWT 依赖注入
-│   │   ├── utils.py         # Token 加解密
-│   │   └── schemas.py       # 请求/响应模型
-│   ├── users/               # 用户模块
-│   │   ├── models.py        # UserRepository
-│   │   └── schemas.py       # 用户模型定义
-│   └── repositories/
-│       └── base.py          # Repository 基类
-├── scripts/
-│   ├── init_tables.py       # 初始化用户表
-│   └── seed_users.py        # 初始化用户数据
-└── tests/                   # 测试文件
-```
+- **技术栈**：Python 3.8+ + FastAPI + Playwright
+- **端口**：8002 (API)
+- **功能**：多平台视频自动上传
+- **依赖**：PostgreSQL, Redis
 
-### 后端核心功能
+### 3. 共享组件
 
-| 模块 | 功能 |
-|:---|:---|
-| **Auth** | 登录、JWT Token 颁发与验证 |
-| **Users** | 用户 CRUD、角色管理 |
-
-**注意**：视频剪辑功能由前端直接对接 OpenStoryline，后端不再提供 Bridge。
-
----
+- **数据库**：PostgreSQL (用户数据 + 上传任务)
+- **缓存**：Redis (会话管理和任务队列)
+- **存储**：本地存储系统
 
 ## 🖥️ 端口访问指南
 
-| 门户 | 访问地址 | 说明 |
+| 服务 | 访问地址 | 说明 |
 |:---|:---|:---|
-| **用户端口** | `http://localhost:80` | 前端应用 |
-| **管理端口** | `http://localhost:81` | 管理后台 |
-| **后端 API** | `http://localhost:8000` | FastAPI 服务入口 |
-| **API 文档** | `http://localhost:8000/docs` | Swagger 接口调试 |
-| **OpenStoryline** | `http://localhost:7860` | 视频剪辑引擎 Web |
-| **OpenStoryline API** | `http://localhost:8001` | 视频剪辑 API（前端直接调用） |
-| **PostgreSQL** | `localhost:5432` | 数据库 |
-
----
+| **用户前端** | `http://localhost` | 用户 dashboard (端口 80) |
+| **管理后台** | `http://localhost:81` | 管理界面 (端口 81) |
+| **后端API** | `http://localhost:8000` | FastAPI 服务 (端口 8000) |
+| **API文档** | `http://localhost:8000/docs` | Swagger 接口文档 |
+| **视频剪辑引擎** | `http://localhost:7860` | OpenStoryline Web界面 |
+| **剪辑API** | `http://localhost:8001` | OpenStoryline API |
+| **上传服务** | `http://localhost:8002` | 视频上传API (端口 8002) |
+| **数据库** | `localhost:5432` | PostgreSQL 数据库 |
+| **Redis** | `localhost:6379` | Redis 缓存服务 |
 
 ## 🛠️ 快速启动
 
 ### 1. 克隆项目
+
 ```bash
-git clone <repo-url>
+git clone https://github.com/NGU-forever/Ai_Autoclip_System.git
 cd Ai_Autoclip_System
 ```
 
 ### 2. 环境配置
-复制 `.env.example` 并重命名为 `.env`：
+
+复制环境变量模板并配置：
 
 ```bash
 cp .env.example .env
+nano .env
 ```
 
-编辑 `.env` 文件，配置必要的环境变量：
-```env
-DATABASE_URL=postgresql://user:password@db:5432/agentos
-SECRET_KEY=your-secret-key-here
-```
+### 3. 一键部署
 
-### 3. 一键部署 (Docker Compose)
 ```bash
-# 生产/交付环境
+# 生产环境部署
 docker compose up -d --build
-```
 
-本地开发（热重载）：
-```bash
+# 本地开发（热重载）
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 ```
 
-首次启动时 `web` 容器会自动执行：
-- 初始化数据库表结构
-- 初始化默认用户
-
-如需关闭自动初始化：
-- `RUN_DB_INIT=false` - 跳过建表
-- `RUN_DB_SEED=false` - 跳过用户 seed
-
 ### 4. 账号登录
+
 系统预设账号：
 
-| 账号 | 密码 | 角色 |
-|:---|:---|:---|
-| `root@agentos.io` | `ChangeMe!Root@2026` | admin |
-| `admin@agentos.io` | `ChangeMe!Admin@2026` | admin |
-| `user@agentos.io` | `ChangeMe!User@2026` | user |
-| `viewer@agentos.io` | `ChangeMe!Viewer@2026` | viewer |
-
-### 5. 前端开发模式（可选）
 ```bash
-cd frontend && npm install && npm run dev
+# 管理员账号
+root@agentos.io / ChangeMe!Root@2026
+admin@agentos.io / ChangeMe!Admin@2026
+
+# 普通用户
+user@agentos.io / ChangeMe!User@2026
+viewer@agentos.io / ChangeMe!Viewer@2026
 ```
 
-前端配置中需直接指向 OpenStoryline API：
+## 📁 项目结构
+
+```
+Ai_Autoclip_System/
+├── /frontend/              # React前端（用户端/管理端）
+│   ├── /src/              # 前端源码
+│   └── Dockerfile         # 前端Docker配置
+├── /backend/              # FastAPI后端（认证+用户管理）
+│   ├── /src/              # 后端源码
+│   ├── /scripts/          # 数据库初始化脚本
+│   └── /tests/            # 测试文件
+├── /AgentOs-OpenStoryline/ # OpenStoryline视频剪辑引擎
+├── /AgentOs-Uploader/     # 视频自动上传服务
+│   ├── /src/              # 上传服务源码
+│   ├── /persistent_browser_service.py # 浏览器会话管理
+│   └── /qr_login_service.py # 二维码登录服务
+├── /storage/              # 运行期存储
+│   ├── /exports/          # 视频成片输出
+│   ├── /openstoryline/    # OpenStoryline工作目录
+│   └── /raw/             # 原始素材上传
+├── docker-compose.yml     # Docker编排配置
+└── .env                   # 环境变量配置
+```
+
+## 🔌 API概览
+
+### AgentOS 剪辑系统API
+
+- `POST /api/admin/auth/login` - 用户登录
+- `GET /api/users` - 获取用户列表
+- `POST /api/users` - 创建用户
+
+### AgentOS Uploader API
+
+- `GET /uploader/accounts` - 获取账号列表
+- `POST /uploader/accounts` - 添加账号
+- `POST /uploader/publish` - 发布视频
+- `GET /uploader/tasks` - 获取任务列表
+- `POST /uploader/qr-login` - 创建登录任务
+
+### WebSocket实时通知
+
+- `ws://localhost:8002/ws/status` - 上传状态实时通知
+
+## 🔗 系统集成
+
+### OpenStoryline 集成
+
+前端直接调用OpenStoryline API进行视频剪辑：
+
 ```typescript
 // 前端配置示例
 const OPENSTORYLINE_API = 'http://localhost:8001'
+
+// 创建剪辑会话
+POST http://localhost:8001/sessions
+
+// 执行剪辑节点
+POST http://localhost:8001/sessions/{id}/execute
+
+// 获取进度流
+GET http://localhost:8001/sessions/{id}/stream
 ```
 
----
+### 微前端架构
 
-## 📁 目录指南
+AgentOS采用微前端架构，在同一界面中集成两个子系统：
 
+- **AgentOS UI**：主应用入口
+- **OpenStoryline UI**：剪辑功能模块
+- **Uploader UI**：上传功能模块
+
+## 🐳 Docker部署详解
+
+### 服务说明
+
+```yaml
+services:
+  # PostgreSQL数据库
+  db:
+    image: pgvector/pgvector:pg15-trixie
+    ports: ["5432:5432"]
+  
+  # Redis缓存
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+  
+  # 视频上传服务
+  uploader:
+    build: ./AgentOs-Uploader
+    ports: ["8002:8002"]
+    depends_on: [db, redis]
+  
+  # 上传任务执行器
+  uploader-worker:
+    build: ./AgentOs-Uploader
+    command: celery worker...
+    depends_on: [db, redis, uploader]
+  
+  # 后端API
+  web:
+    build: ./backend
+    ports: ["8000:8000"]
+    depends_on: [db, redis]
+  
+  # 视频剪辑引擎
+  storyline:
+    build: ./AgentOs-OpenStoryline
+    ports: ["7860:7860", "8001:8001"]
+    depends_on: [web]
+  
+  # 用户前端
+  user-frontend:
+    build: ./frontend
+    ports: ["80:80"]
+    depends_on: [web, storyline, uploader]
 ```
-/
-├── /frontend              React 前端（用户端/管理端）
-├── /backend               FastAPI 后端（仅认证+用户）
-│   ├── /src               源码
-│   ├── /scripts           数据库初始化脚本
-│   └── /tests             测试文件
-├── /AgentOs-OpenStoryline OpenStoryline 视频剪辑引擎
-├── /storage               运行期存储
-│   ├── /exports           视频成片输出
-│   ├── /openstoryline     OpenStoryline 工作目录
-│   └── /raw               原始素材上传
-├── docker-compose.yml     Docker 编排配置
-└── .env                   环境变量配置
-```
 
----
+## 📊 最佳实践
 
-## 🔌 后端 API 概览
+### 生产环境建议
 
-### 认证接口
-```
-POST /api/admin/auth/login          # 用户登录
-```
+1. **安全配置**：
+   - 修改默认密码和SECRET_KEY
+   - 配置HTTPS和防火墙
+   - 设置合适的访问控制
 
-详细 API 文档请访问：`http://localhost:8000/docs`
+2. **性能优化**：
+   - 使用无头模式减少资源消耗
+   - 合理配置浏览器会话超时时间
+   - 调整并发任务数量
 
----
+3. **监控维护**：
+   - 定期备份数据库和存储
+   - 监控服务健康状态
+   - 设置日志轮转和监控告警
 
-## 🔗 OpenStoryline 集成
+### 开发环境建议
 
-前端直接调用 OpenStoryline API (:8001) 进行视频剪辑：
+1. **热重载**：使用docker-compose.dev.yml进行开发
+2. **代码格式化**：使用black和flake8进行代码检查
+3. **测试覆盖**：编写单元测试和集成测试
 
-```
-# 示例：前端直接调用
-POST http://localhost:8001/sessions              # 创建剪辑会话
-POST http://localhost:8001/sessions/{id}/execute # 执行节点
-GET  http://localhost:8001/sessions/{id}/stream  # SSE 进度流
-```
+## 🧪 测试方法
 
-详见 OpenStoryline 文档。
-
----
-
-## 🧪 测试
+### 运行测试
 
 ```bash
-cd backend
-pytest tests/ -v
+# 后端测试
+cd backend && pytest tests/ -v
+
+# 上传服务测试
+cd AgentOs-Uploader && pytest tests/ -v
 ```
 
----
+### 代码质量检查
 
-## 📝 注意事项
+```bash
+# 后端代码格式化
+cd backend && black .
 
-1. **安全性**：生产环境请务必修改默认密码和 `SECRET_KEY`
-2. **存储**：视频素材和成片默认存储在 `/storage` 目录
-3. **OpenStoryline**：视频剪辑核心功能依赖 OpenStoryline 服务，请确保其正常运行
+# 上传服务代码检查
+cd AgentOs-Uploader && flake8 .
+```
 
----
+## 🤝 贡献指南
 
-## 📄 License
+我们欢迎社区贡献！请遵循以下步骤：
 
-MIT License
+1. Fork 项目
+2. 创建功能分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 打开 Pull Request
+
+### 开发环境设置
+
+```bash
+# 安装开发依赖
+pip install -r requirements-dev.txt
+
+# 代码格式化
+black .
+
+# 代码检查
+flake8 .
+```
+
+## 📈 版本历史
+
+### v1.0.0 (当前版本)
+- 初始版本发布
+- 支持AI视频剪辑和三平台自动发布
+- 完整的微前端架构
+- Docker容器化部署
+
+## 📄 许可证
+
+本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
+
+## 📞 联系方式
+
+- 项目维护者：Frank XIONG
+- 邮箱：xty_frank@qq.com
+- GitHub：https://github.com/NGU-forever/Ai_Autoclip_System
+
+## 🙏 致谢
+
+- [Playwright](https://github.com/microsoft/playwright) - 自动化测试工具
+- [FastAPI](https://github.com/tiangolo/fastapi) - Web框架
+- [OpenStoryline](https://github.com/your-repo) - 视频剪辑引擎
+- [Docker](https://www.docker.com/) - 容器化解决方案
+- [PostgreSQL](https://www.postgresql.org/) - 数据库系统
+- [Redis](https://redis.io/) - 缓存系统
+
+## 📋 常见问题解答
+
+### Q: 如何解决Cookie失效问题？
+A: 当Cookie失效时，需要重新通过二维码登录获取新的Cookie。可以使用 `qr-login` 接口创建登录任务，扫描二维码完成登录后，系统会自动保存新的Cookie文件。
+
+### Q: 如何监控上传进度？
+A: 可以通过WebSocket连接 `ws://localhost:8002/ws/status` 实时接收任务状态更新，或者在API中查询任务详情。
+
+### Q: 支持哪些视频格式？
+A: 支持常见的视频格式，包括MP4、MOV、AVI等。建议使用MP4格式，分辨率建议为720p或1080p。
+
+### Q: 如何处理上传失败？
+A: 上传失败时，系统会记录详细的错误信息。可以通过任务详情接口查看错误原因，并根据错误类型采取相应措施（如重新上传、检查网络等）。
+
+### Q: 如何扩展支持新平台？
+A: 可以通过实现新的平台适配器来扩展支持。需要创建新的平台模块，实现相应的登录和上传逻辑。
+
+### Q: 前端如何与两个后端系统集成？
+A: AgentOS采用微前端架构，通过iframe或模块加载的方式在同一界面中集成AgentOS剪辑系统和AgentOS Uploader服务。
+
+### Q: 如何进行视频剪辑？
+A: 使用OpenStoryline API进行视频剪辑，通过前端调用剪辑会话创建、节点执行等接口完成视频编辑。
+
+### Q: 系统如何保证数据一致性？
+A: 通过共享的PostgreSQL数据库和Redis缓存，确保两个子系统之间的数据同步和一致性。
