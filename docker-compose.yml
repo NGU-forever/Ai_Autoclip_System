@@ -10,7 +10,7 @@ services:
   # db: PostgreSQL 15 database
   # ----------------------------------------------------------
   db:
-    image: pgvector/pgvector:pg15
+    image: pgvector/pgvector:pg15-trixie
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-b2b_user}
@@ -30,7 +30,7 @@ services:
   # redis: For SSE event streaming
   # ----------------------------------------------------------
   redis:
-    image: redis:7.2.11-alpine
+    image: redis:7-alpine
     restart: unless-stopped
     ports:
       - "6379:6379"
