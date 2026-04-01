@@ -154,7 +154,7 @@ services:
       # 资源与模型落到仓库内本地目录（持久化；首次若目录为空请先在本机执行: cd AgentOs-OpenStoryline && bash download.sh）
       - ./AgentOs-OpenStoryline/resource:/app/resource
       - ./AgentOs-OpenStoryline/.storyline:/app/.storyline
-      - ./storage:/storage # 与 config 中 media_dir / outputs_dir / server_cache_dir 对应（/storage/...）
+      - ./storage:/app/storage # 与 config 中 media_dir / outputs_dir / server_cache_dir 对应（/storage/...）
     depends_on:
       web:
         condition: service_healthy

@@ -12,7 +12,7 @@ ENV NPM_CONFIG_REGISTRY=https://mirrors.cloud.tencent.com/npm/ \
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app:/app/uploader
+    PYTHONPATH=/app:/app/openstoryline
 
 WORKDIR /build/web
 COPY web/package.json web/package-lock.json* ./
