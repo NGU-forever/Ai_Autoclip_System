@@ -139,7 +139,7 @@ class PersistentBrowserManager:
         每个会话只创建轻量级的 BrowserContext。
         """
         async with self._browser_lock:
-            if self._browser is not None and not self._browser.is_closed():
+            if self._browser is not None and self._browser.is_connected():
                 return self._browser
             
             # 启动新的浏览器实例
@@ -158,7 +158,7 @@ class PersistentBrowserManager:
     async def _stop_global_browser(self):
         """关闭全局浏览器实例"""
         async with self._browser_lock:
-            if self._browser and not self._browser.is_closed():
+            if self._browser and self._browser.is_connected():
                 try:
                     await self._browser.close()
                     logger.info("Global browser instance closed")
@@ -831,30 +831,55 @@ class PersistentBrowserManager:
             # 尝试获取用户名
             if session.platform == "douyin":
                 try:
+                    # 抖音可能有多种类名
                     user_name = await session.page.evaluate("""
                         () => {
-                            const el = document.querySelector('.user-name, .nickname, [class*="user"]');
-                            return el ? el.textContent.trim() : null;
+                            const selectors = ['.user-name', '.nickname', '[class*="nickname"]', '[class*="userName"]'];
+                            for (const s of selectors) {
+                                const el = document.querySelector(s);
+                                if (el && el.textContent.trim()) return el.textContent.trim();
+                            }
+                            return null;
                         }
                     """)
-                    session.user_name = user_name
+                    if user_name:
+                        session.user_name = user_name
+                    else:
+                        session.user_name = f"抖音_{session.id[:8]}"
                 except:
-                    session.user_name = f"抖音账号_{session.id[:8]}"
+                    session.user_name = f"抖音_{session.id[:8]}"
             elif session.platform == "xhs":
                 try:
                     user_name = await session.page.evaluate("""
                         () => {
-                            const el = document.querySelector('.user-name, .nickname, [class*="user"], [class*="name"]');
-                            return el ? el.textContent.trim() : null;
+                            const selectors = ['.user-name', '.nickname', '.name-detail', '[class*="userName"]'];
+                            for (const s of selectors) {
+                                const el = document.querySelector(s);
+                                if (el && el.textContent.trim()) return el.textContent.trim();
+                            }
+                            return null;
                         }
                     """)
-                    session.user_name = user_name or f"小红书账号_{session.id[:8]}"
+                    session.user_name = user_name or f"小红书_{session.id[:8]}"
                 except:
-                    session.user_name = f"小红书账号_{session.id[:8]}"
+                    session.user_name = f"小红书_{session.id[:8]}"
             else:
                 session.user_name = f"视频号_{session.id[:8]}"
             
             logger.info(f"Login success for session {session.id}, user: {session.user_name}")
+
+            # 立即注册到 UploaderService（后端自动完成，无需前端再次调用 status 接口同步）
+            try:
+                from src.upload.service import UploaderService
+                service = UploaderService()
+                service.update_account_cookie(
+                    platform=session.platform,
+                    user_name=session.user_name,
+                    cookie_filename=session.cookie_file,
+                )
+                logger.info(f"Successfully registered account {session.user_name} for session {session.id}")
+            except Exception as e:
+                logger.error(f"Failed to auto-register account for session {session.id}: {e}")
             
         except Exception as e:
             logger.error(f"Error handling login success for session {session.id}: {e}")

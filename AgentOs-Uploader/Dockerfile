@@ -11,7 +11,7 @@ ENV VITE_LOGIN_PAGE_URL=$VITE_LOGIN_PAGE_URL
 ENV VITE_MAIN_APP_ORIGIN=$VITE_MAIN_APP_ORIGIN
 RUN npm run build
 
-FROM mirror.ccs.tencentyun.com/library/python:3.11-slim
+FROM pzm2mntd3t74vneyhy.xuanyuan.run/python:3.11-slim
 
 ENV NPM_CONFIG_REGISTRY=https://mirrors.cloud.tencent.com/npm/ \
     PIP_INDEX_URL=https://mirrors.cloud.tencent.com/pypi/simple/ \

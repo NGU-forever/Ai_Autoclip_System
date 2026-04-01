@@ -19,10 +19,6 @@ from src.qr_login import (
     LoginTask,
     QRLoginService,
     get_qr_login_service,
-    DouyinLogin,
-    TencentLogin,
-    XHSLogin,
-    PLATFORM_REGISTRY,
 )
 
 __all__ = [
@@ -30,8 +26,4 @@ __all__ = [
     "LoginTask",
     "QRLoginService",
     "get_qr_login_service",
-    "DouyinLogin",
-    "TencentLogin",
-    "XHSLogin",
-    "PLATFORM_REGISTRY",
 ]
