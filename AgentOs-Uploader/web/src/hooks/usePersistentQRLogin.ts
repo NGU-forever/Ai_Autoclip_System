@@ -167,10 +167,10 @@ export function usePersistentQRLogin(): UsePersistentQRLoginReturn {
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
 
-  // 获取当前活跃的非成功会话 ID
+  // 获取当前活跃会话 ID（包括 success 状态，确保 WS 不会在成功处理完成前断开）
   const getActiveSessionId = useCallback((platform: PersistentPlatform): string | null => {
     const session = sessionsRef.current[platform];
-    if (session?.sessionId && session.status !== 'success') {
+    if (session?.sessionId) {
       return session.sessionId;
     }
     return null;
@@ -290,6 +290,42 @@ export function usePersistentQRLogin(): UsePersistentQRLoginReturn {
     return () => clearInterval(timer);
   }, []);
 
+  // HTTP 轮询 fallback：当 WebSocket 未连接时，通过 HTTP API 轮询状态
+  // 这是关键的可靠性保障 —— Docker/nginx 可能不支持 WebSocket 升级
+  useEffect(() => {
+    const pollTimer = setInterval(async () => {
+      const cur = sessionsRef.current;
+      for (const p of PLATFORMS) {
+        const s = cur[p];
+        // 只轮询活跃的、未完成的会话
+        if (!s?.sessionId || s.status === 'success' || s.status === 'failed') {
+          continue;
+        }
+        try {
+          const st = await getQRLoginStatus(s.sessionId);
+          const mapped = mapTaskStatusToModal(st.status);
+          
+          // 只在状态变化时更新
+          if (mapped !== s.status) {
+            console.log(`[HTTP Poll] ${p}: ${s.status} → ${mapped}`);
+            setSessions(prev => ({
+              ...prev,
+              [p]: {
+                ...s,
+                status: mapped,
+                userName: st.account?.userName || s.userName,
+              },
+            }));
+          }
+        } catch {
+          // 轮询失败静默处理
+        }
+      }
+    }, 3000); // 每 3 秒轮询一次
+
+    return () => clearInterval(pollTimer);
+  }, []);
+
   useEffect(() => {
     const cancelAllOpen = () => {
       const cur = sessionsRef.current;
@@ -372,7 +408,7 @@ export function usePersistentQRLogin(): UsePersistentQRLoginReturn {
     setSessions(prev => ({ ...prev, [platform]: null }));
   }, []);
 
-  // checkStatus 现在作为 WebSocket 失败时的 fallback
+  // checkStatus: 登录成功时必须走 HTTP API 获取完整的 account 数据
   const checkStatus = useCallback(
     async (platform: PersistentPlatform): Promise<PersistentSessionStatus | null> => {
       const session = sessionsRef.current[platform];
@@ -380,13 +416,14 @@ export function usePersistentQRLogin(): UsePersistentQRLoginReturn {
         return null;
       }
 
-      // 如果 WebSocket 已连接，使用 WebSocket 的最新消息
+      // 如果 WebSocket 已连接且状态不是 success，可以使用 WebSocket 的最新消息
+      // 注意：success 时必须走 HTTP API，因为 WebSocket 消息不包含完整的 account 数据
       const ws = wsMap[platform];
-      if (ws.isConnected && ws.lastMessage) {
+      if (ws.isConnected && ws.lastMessage && ws.lastMessage.status !== 'success') {
         return toPersistentSessionStatusFromWebSocket(ws.lastMessage);
       }
 
-      // WebSocket 未连接，使用 HTTP API 作为 fallback
+      // 使用 HTTP API 获取完整状态（包括 account 信息）
       try {
         const st = await getQRLoginStatus(session.sessionId);
         const mapped = mapTaskStatusToModal(st.status);

@@ -489,19 +489,37 @@ const QRLoginModal: React.FC<{
   // 登录成功时获取完整状态（包括账号信息）
   const pollStatusAndHandleSuccess = async () => {
     if (!platform || !onCheckStatus) return;
-    try {
-      const status = await onCheckStatus(platform);
-      if (status?.status === 'success') {
-        if (status.account) {
-          onSuccess(status.account);
-        } else {
+
+    // 短暂延迟，确保后端已完成 cookie 保存和账号注册
+    await new Promise(resolve => setTimeout(resolve, 800));
+
+    const MAX_RETRIES = 3;
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      try {
+        const status = await onCheckStatus(platform);
+        if (status?.status === 'success') {
+          if (status.account && status.account.id && status.account.cookieFile) {
+            // 后端返回了完整的 account，先添加到本地
+            onSuccess(status.account);
+          }
+          // 始终从后端刷新账号列表（后端已在 _handle_login_success 中自动注册）
           await onAccountsRefresh?.();
           handleClose();
+          return;
+        }
+        // 如果状态还不是 success，等一下再重试
+        if (attempt < MAX_RETRIES - 1) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      } catch (error) {
+        console.warn('Failed to get success status (attempt ' + (attempt + 1) + '):', error);
+        if (attempt < MAX_RETRIES - 1) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
         }
       }
-    } catch (error) {
-      console.warn('Failed to get success status:', error);
     }
+    // 兜底：重试耗尽也刷新一次账号列表
+    await onAccountsRefresh?.();
   };
 
   // 保留 pollStatus 作为手动检查（WebSocket fallback）
