@@ -21,7 +21,7 @@ from typing import Dict, List, Optional, Tuple
 
 from playwright.async_api import async_playwright, Browser, BrowserContext, Frame, Page, Playwright
 
-from src.config import settings
+from src.config_manager import config_manager
 from uploader.conf import LOCAL_CHROME_PATH
 from src.qr_login.drivers import get_driver
 from src.qr_login.success_detector import LoginSuccessDetector
@@ -86,13 +86,13 @@ class PersistentBrowserManager:
     """
     
     # 从 settings 读取配置，支持环境变量覆盖
-    HEARTBEAT_TIMEOUT = settings.browser_heartbeat_timeout
-    HEARTBEAT_CHECK_INTERVAL = settings.browser_heartbeat_check_interval
-    QR_CODE_VALIDITY = settings.browser_qr_validity
-    QR_WAIT_TIMEOUT = settings.browser_qr_wait_timeout
-    REFRESH_QR_WAIT_TIMEOUT = settings.browser_refresh_qr_wait_timeout
-    LOGIN_POLL_MAX_TIME = settings.browser_login_poll_max_time
-    MAX_CONCURRENT_SESSIONS = settings.browser_max_concurrent_sessions
+    HEARTBEAT_TIMEOUT = config_manager.get("browser_heartbeat_timeout")
+    HEARTBEAT_CHECK_INTERVAL = config_manager.get("browser_heartbeat_check_interval")
+    QR_CODE_VALIDITY = config_manager.get("browser_qr_validity")
+    QR_WAIT_TIMEOUT = config_manager.get("browser_qr_wait_timeout")
+    REFRESH_QR_WAIT_TIMEOUT = config_manager.get("browser_refresh_qr_wait_timeout")
+    LOGIN_POLL_MAX_TIME = config_manager.get("browser_login_poll_max_time")
+    MAX_CONCURRENT_SESSIONS = config_manager.get("browser_max_concurrent_sessions")
     
     def __init__(self):
         self.sessions: Dict[str, PersistentSession] = {}

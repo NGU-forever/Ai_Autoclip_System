@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional
 
-from src.config import settings
+from src.config_manager import config_manager
 from uploader.utils.playwright_net import (
     merge_chromium_launch_options,
     goto_with_retry,
