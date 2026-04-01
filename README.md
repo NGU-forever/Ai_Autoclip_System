@@ -34,6 +34,32 @@ AgentOS 是一个完整的AI视频自动化解决方案，包含两个核心子�
 +-------------------+     +-------------------+     +-------------------+
 ```
 
+```mermaid
+graph LR
+      subgraph "AgentOS 剪辑系统"
+          A[用户界面] --> B[React前端]
+          B --> C[FastAPI后端]
+          C --> D[PostgreSQL]
+          C --> E[Redis]
+          B --> F[OpenStoryline引擎]
+      end
+
+      subgraph "AgentOS 上传服务"
+          G[上传API] --> H[多平台适配器]
+          H --> I[抖音]
+          H --> J[视频号]
+          H --> K[小红书]
+          G --> L[PostgreSQL]
+          G --> M[Redis]
+      end
+
+      N[Docker] --> A
+      N --> G
+      O[存储系统] --> P[视频素材]
+      O --> Q[剪辑结果]
+      O --> R[上传日志]
+```
+
 ### 子系统关系
 
 - **AgentOS 剪辑系统**：负责视频智能剪辑和用户管理
