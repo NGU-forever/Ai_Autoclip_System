@@ -10,3 +10,4 @@ redis>=5.0.0
 # Phase 3: 数据库持久化
 sqlalchemy>=2.0.0
 aiosqlite>=0.20.0
+asyncpg>=0.29.0

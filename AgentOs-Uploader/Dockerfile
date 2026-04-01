@@ -23,15 +23,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 RUN set -ex \
-    # 替换传统 sources.list 文件
-    && sed -i 's|deb.debian.org|mirrors.tencentyun.com|g' /etc/apt/sources.list 2>/dev/null || true \
-    && sed -i 's|security.debian.org|mirrors.tencentyun.com/debian-security|g' /etc/apt/sources.list 2>/dev/null || true \
+    # 替换以支持公网镜像（腾讯云公网镜像），避免内网镜像在非腾讯云 VPC 环境失败
+    && sed -i 's|deb.debian.org|mirrors.cloud.tencent.com|g' /etc/apt/sources.list 2>/dev/null || true \
+    && sed -i 's|security.debian.org|mirrors.cloud.tencent.com/debian-security|g' /etc/apt/sources.list 2>/dev/null || true \
     # 替换 DEB822 格式的 .sources 文件（Debian 12+）
-    && find /etc/apt/sources.list.d/ -name "*.sources" -exec sed -i 's|deb.debian.org|mirrors.tencentyun.com|g' {} \; 2>/dev/null || true \
-    && find /etc/apt/sources.list.d/ -name "*.sources" -exec sed -i 's|security.debian.org|mirrors.tencentyun.com/debian-security|g' {} \; 2>/dev/null || true \
+    && find /etc/apt/sources.list.d/ -name "*.sources" -exec sed -i 's|deb.debian.org|mirrors.cloud.tencent.com|g' {} \; 2>/dev/null || true \
+    && find /etc/apt/sources.list.d/ -name "*.sources" -exec sed -i 's|security.debian.org|mirrors.cloud.tencent.com/debian-security|g' {} \; 2>/dev/null || true \
     # 同时处理遗留的 .list 文件（兼容旧系统）
-    && find /etc/apt/sources.list.d/ -name "*.list" -exec sed -i 's|deb.debian.org|mirrors.tencentyun.com|g' {} \; 2>/dev/null || true \
-    && find /etc/apt/sources.list.d/ -name "*.list" -exec sed -i 's|security.debian.org|mirrors.tencentyun.com/debian-security|g' {} \; 2>/dev/null || true
+    && find /etc/apt/sources.list.d/ -name "*.list" -exec sed -i 's|deb.debian.org|mirrors.cloud.tencent.com|g' {} \; 2>/dev/null || true \
+    && find /etc/apt/sources.list.d/ -name "*.list" -exec sed -i 's|security.debian.org|mirrors.cloud.tencent.com/debian-security|g' {} \; 2>/dev/null || true
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \

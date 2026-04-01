@@ -11,17 +11,25 @@ from sqlalchemy.pool import StaticPool
 
 from .models import Base
 
+from src.config import settings
+
 # 数据库文件路径：优先使用环境变量，否则写入 storage 目录
-_default_db = Path(__file__).parent.parent.parent / "storage" / "uploader.db"
+# 注意：docker-compose 中常用的变量名为 DATABASE_URL
+_default_db = Path("/app/storage/uploader.db")
 DATABASE_URL = os.getenv(
     "UPLOADER_DB_URL",
-    f"sqlite+aiosqlite:///{_default_db}",
+    os.getenv("DATABASE_URL", f"sqlite+aiosqlite:///{_default_db}")
 )
+
+# 兼容处理：如果是 postgresql:// 需要替换为 postgresql+asyncpg:// 供 SQLAlchemy 异步引擎使用
+if DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 
 engine = create_async_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False},
-    poolclass=StaticPool,   # SQLite 单连接池，避免 "database is locked"
+    # 仅 SQLite 需要 check_same_thread
+    connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {},
+    poolclass=StaticPool if "sqlite" in DATABASE_URL else None,
     echo=False,
 )
 
