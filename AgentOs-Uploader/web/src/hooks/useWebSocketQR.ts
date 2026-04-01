@@ -101,7 +101,7 @@ export function useWebSocketQR({
     // Build WebSocket URL
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
-    const wsUrl = `${protocol}//${host}/api/admin/uploader/ws/qr-login/${sessionId}`;
+    const wsUrl = `${protocol}//${host}/uploader/ws/qr-login/${sessionId}`;
 
     try {
       const ws = new WebSocket(wsUrl);
