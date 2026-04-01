@@ -125,8 +125,14 @@ class LoginSuccessDetector:
         )
         
         if is_logged_in:
+            logger.info(
+                f"[{platform}] ✅ Login success confirmed (score={score}, methods={detected_methods}, url={current_url[:80]})"
+            )
+        elif score > 0:
+            # 有部分信号但未达阈值，记录详细信息帮助诊断
             logger.debug(
-                f"[{platform}] Login success detected (score={score}, methods={detected_methods})"
+                f"[{platform}] Partial signals (score={score}, methods={detected_methods}, "
+                f"is_login_page={is_login_page}, url={current_url[:80]})"
             )
             
         return is_logged_in
