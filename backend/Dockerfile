@@ -11,7 +11,6 @@ ENV NPM_CONFIG_REGISTRY=https://mirrors.cloud.tencent.com/npm/ \
 # Prevent Python from writing .pyc files and buffer stdout/stderr
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
-    PYTHONPATH=/app
 
 WORKDIR /app
 
