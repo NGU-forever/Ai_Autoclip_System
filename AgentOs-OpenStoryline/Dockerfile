@@ -1,14 +1,8 @@
 FROM pzm2mntd3t74vneyhy.xuanyuan.run/node:20.19.4-alpine AS webbuilder
 
-WORKDIR /build/web
-COPY web/package.json web/package-lock.json* ./
-RUN npm ci 2>/dev/null || npm install
-COPY web/ ./
-RUN npm run build
-
 FROM pzm2mntd3t74vneyhy.xuanyuan.run/python:3.11-slim
 
-# 轩辕镜像优化：加速依赖下载
+# 加速 Node 阶段依赖下载（腾讯云 npm 镜像）
 ENV NPM_CONFIG_REGISTRY=https://mirrors.cloud.tencent.com/npm/ \
     PIP_INDEX_URL=https://mirrors.cloud.tencent.com/pypi/simple/ \
     PIP_TRUSTED_HOST=mirrors.cloud.tencent.com \
@@ -16,19 +10,36 @@ ENV NPM_CONFIG_REGISTRY=https://mirrors.cloud.tencent.com/npm/ \
     YARN_REGISTRY=https://mirrors.cloud.tencent.com/npm/ \
     HF_ENDPOINT=https://hf-mirror.com
 
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app:/app/uploader
+
+WORKDIR /build/web
+COPY web/package.json web/package-lock.json* ./
+RUN npm ci 2>/dev/null || npm install
+COPY web/ ./
+RUN npm run build
+
 # 设置工作目录
 WORKDIR /app
 
 # 复制文件
 COPY requirements.txt .
-# 腾讯云内网 apt 加速（本地 / 非腾讯云构建勿开：mirrors.tencentyun.com 外网不可达）
-ARG APT_USE_TENCENT_MIRROR=1
-# 安装依赖
-RUN if [ "$APT_USE_TENCENT_MIRROR" = "1" ]; then \
-      sed -i 's/deb.debian.org/mirrors.tencentyun.com/g' /etc/apt/sources.list.d/debian.sources && \
-      sed -i 's/security.debian.org/mirrors.tencentyun.com/g' /etc/apt/sources.list.d/debian.sources; \
-    fi && \
-    apt-get update && \
+
+# 无条件替换为腾讯云镜像（推荐）
+RUN set -ex \
+    # 替换传统 sources.list 文件
+    && sed -i 's|deb.debian.org|mirrors.tencentyun.com|g' /etc/apt/sources.list 2>/dev/null || true \
+    && sed -i 's|security.debian.org|mirrors.tencentyun.com/debian-security|g' /etc/apt/sources.list 2>/dev/null || true \
+    # 替换 DEB822 格式的 .sources 文件（Debian 12+）
+    && find /etc/apt/sources.list.d/ -name "*.sources" -exec sed -i 's|deb.debian.org|mirrors.tencentyun.com|g' {} \; 2>/dev/null || true \
+    && find /etc/apt/sources.list.d/ -name "*.sources" -exec sed -i 's|security.debian.org|mirrors.tencentyun.com/debian-security|g' {} \; 2>/dev/null || true \
+    # 同时处理遗留的 .list 文件（兼容旧系统）
+    && find /etc/apt/sources.list.d/ -name "*.list" -exec sed -i 's|deb.debian.org|mirrors.tencentyun.com|g' {} \; 2>/dev/null || true \
+    && find /etc/apt/sources.list.d/ -name "*.list" -exec sed -i 's|security.debian.org|mirrors.tencentyun.com/debian-security|g' {} \; 2>/dev/null || true
+
+# 更新并安装软件包
+RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         ffmpeg \
         wget \
@@ -37,6 +48,11 @@ RUN if [ "$APT_USE_TENCENT_MIRROR" = "1" ]; then \
         git-lfs \
         curl && \
     rm -rf /var/lib/apt/lists/*
+
+# 4. 配置 pip 镜像（加速 Python 依赖安装）
+RUN pip config set global.index-url https://mirrors.tencentyun.com/pypi/simple
+
+# 5. 安装 Python 依赖
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY run.sh .
