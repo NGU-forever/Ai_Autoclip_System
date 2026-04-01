@@ -1,10 +1,11 @@
 import asyncio
+import logging
 import os
 import uuid
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status, WebSocket, WebSocketDisconnect
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
 from src.tasks.publish import publish_video_task
@@ -29,6 +30,7 @@ from src.upload.schemas import (
     VideoListResponse,
 )
 from src.upload.service import UploaderService, _resolve_publish_video_path
+from src.upload.websocket import ws_manager
 from uploader.qr_login_service import get_qr_login_service, LoginStatus
 from uploader.persistent_browser_service import (
     get_persistent_browser_manager,
@@ -633,3 +635,73 @@ async def cancel_persistent_session(
     await manager.close_session(session_id)
     
     return {"success": True, "message": "会话已关闭"}
+
+
+# --- WebSocket for Real-time QR Login Status ---
+@router.websocket("/ws/qr-login/{session_id}")
+async def qr_login_websocket(websocket: WebSocket, session_id: str):
+    """
+    WebSocket 端点 for QR 登录状态实时推送。
+    
+    连接成功后，服务器会在以下状态时主动推送更新：
+    - initializing: 正在初始化
+    - ready: 二维码已生成
+    - scanning: 已扫码，等待确认
+    - success: 登录成功
+    - expired: 二维码过期
+    - failed: 登录失败
+    
+    客户端可以发送 ping 消息保持连接，服务器会回复 pong。
+    """
+    # 先检查会话是否存在
+    manager = await get_persistent_browser_manager()
+    session = manager.get_session(session_id)
+    
+    if not session:
+        await websocket.close(code=4004, reason="会话不存在")
+        return
+    
+    # 接受 WebSocket 连接
+    connected = await ws_manager.connect(session_id, websocket)
+    if not connected:
+        return
+    
+    try:
+        # 发送当前状态
+        await websocket.send_json({
+            "sessionId": session_id,
+            "platform": session.platform,
+            "status": session.status.value,
+            "userName": session.user_name,
+            "error": session.error_msg,
+            "message": "Connected",
+        })
+        
+        # 保持连接，处理客户端消息
+        while True:
+            try:
+                data = await websocket.receive_text()
+                if data == "ping":
+                    await websocket.send_text("pong")
+                elif data == "status":
+                    # 客户端请求当前状态
+                    session = manager.get_session(session_id)
+                    if session:
+                        await websocket.send_json({
+                            "sessionId": session_id,
+                            "platform": session.platform,
+                            "status": session.status.value,
+                            "userName": session.user_name,
+                            "error": session.error_msg,
+                        })
+            except WebSocketDisconnect:
+                break
+            except Exception as e:
+                logger = logging.getLogger(__name__)
+                logger.debug(f"WebSocket message error for {session_id}: {e}")
+                break
+    except Exception as e:
+        logger = logging.getLogger(__name__)
+        logger.debug(f"WebSocket error for {session_id}: {e}")
+    finally:
+        await ws_manager.disconnect(session_id)
