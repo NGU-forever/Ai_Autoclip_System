@@ -495,6 +495,10 @@ class PersistentBrowserManager:
                 # ─────────────────────────────────────────────────────────
                 scan_status = await driver.detect_scan_status(page)
                 
+                # 每次检测都记录日志（仅在频率合适时）
+                if i % 3 == 0:
+                    logger.debug(f"[{session.platform}] scan_status={scan_status}, session.status={session.status.value}, url={page.url[:80]}")
+                
                 if scan_status == 'scanning' and session.status != SessionStatus.SCANNING:
                     session.status = SessionStatus.SCANNING
                     logger.info(f"[{session.platform}] QR code scanned, waiting for confirmation")
@@ -516,8 +520,13 @@ class PersistentBrowserManager:
                 # ─────────────────────────────────────────────────────────
                 # Manager 层：统一成功判定（使用 LoginSuccessDetector）
                 # ─────────────────────────────────────────────────────────
-                if await LoginSuccessDetector.check(page, session.platform):
+                is_success = await LoginSuccessDetector.check(page, session.platform)
+                if i % 5 == 0:
+                    logger.debug(f"[{session.platform}] LoginSuccessDetector.check={is_success}")
+                
+                if is_success:
                     # 登录成功，获取用户名
+                    logger.info(f"[{session.platform}] ✅ Login SUCCESS detected! URL={page.url}")
                     session.user_name = await driver.get_user_name(page)
                     await self._handle_login_success(session)
                     await self._notify_status_change(session)
@@ -823,6 +832,8 @@ class PersistentBrowserManager:
             platform_cookies_path.mkdir(parents=True, exist_ok=True)
             cookie_path = platform_cookies_path / cookie_filename
             await session.context.storage_state(path=str(cookie_path))
+            
+            logger.info(f"Cookie saved to {cookie_path} for session {session.id}")
             
             session.cookie_file = cookie_filename
             session.status = SessionStatus.SUCCESS
