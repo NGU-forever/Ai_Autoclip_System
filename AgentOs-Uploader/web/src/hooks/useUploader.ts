@@ -80,14 +80,14 @@ export class UploaderCookieInvalidError extends Error {
 
 export interface QRLoginTask {
   taskId: string;
-  status: 'pending' | 'scanning' | 'success' | 'failed' | 'expired';
+  status: 'initializing' | 'ready' | 'pending' | 'scanning' | 'success' | 'failed' | 'expired';
   message: string;
   qrUrl?: string;  // 后端返回的二维码 URL
 }
 
 export interface QRLoginStatus {
   taskId: string;
-  status: 'pending' | 'scanning' | 'success' | 'failed' | 'expired';
+  status: 'initializing' | 'ready' | 'pending' | 'scanning' | 'success' | 'failed' | 'expired';
   platform: string;
   account?: Account;
   error?: string;
@@ -220,26 +220,48 @@ export async function listPlatforms(): Promise<Platform[]> {
   return response.platforms;
 }
 
-// ===== 扫码登录 API =====
+// ===== 扫码登录 API (使用 Persistent 管理器版) =====
 
 export async function startQRLogin(platform: string): Promise<QRLoginTask> {
-  return await http.post<QRLoginTask>(`/uploader/accounts/qr-login?platform=${platform}`);
+  const response = await http.post<any>(`/uploader/accounts/qr-persistent/init?platform=${platform}`);
+  return {
+    taskId: response.sessionId,
+    status: response.status,
+    message: response.message,
+    qrUrl: response.qrUrl,
+  };
 }
 
 export function getQRCodeUrl(taskId: string): string {
-  return `/api/admin/uploader/accounts/qr-login/${taskId}/qr-code`;
+  return `/api/admin/uploader/accounts/qr-persistent/${taskId}/qr-code`;
 }
 
 export async function getQRLoginStatus(taskId: string): Promise<QRLoginStatus> {
-  return await http.get<QRLoginStatus>(`/uploader/accounts/qr-login/${taskId}/status`);
+  const response = await http.get<any>(`/uploader/accounts/qr-persistent/${taskId}/status`);
+  return {
+    taskId: response.sessionId,
+    status: response.status,
+    platform: response.platform,
+    account: response.account,
+    error: response.error,
+  };
 }
 
 export async function cancelQRLogin(taskId: string): Promise<void> {
-  await http.post(`/uploader/accounts/qr-login/${taskId}/cancel`);
+  await http.post(`/uploader/accounts/qr-persistent/${taskId}/cancel`);
+}
+
+export async function persistentHeartbeat(taskId: string): Promise<boolean> {
+  try {
+    await http.post(`/uploader/accounts/qr-persistent/${taskId}/heartbeat`);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 const QR_LOGIN_CANCEL_URL = (taskId: string) =>
-  `/api/admin/uploader/accounts/qr-login/${taskId}/cancel`;
+  `/api/admin/uploader/accounts/qr-persistent/${taskId}/cancel`;
 
 function fireKeepaliveCancelQRLogin(taskId: string): void {
   const token = getToken();

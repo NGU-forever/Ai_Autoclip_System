@@ -11,6 +11,7 @@ import {
   getQRCodeUrl,
   getQRLoginStatus,
   cancelQRLogin,
+  persistentHeartbeat,
   type QRLoginStatus,
 } from './useUploader';
 import { useWebSocketQR, type WebSocketQRMessage } from './useWebSocketQR';
@@ -25,6 +26,7 @@ export interface PersistentSession {
   status: 'initializing' | 'ready' | 'scanning' | 'success' | 'failed' | 'expired';
   qrUrl: string;
   message: string;
+  userName?: string;
 }
 
 export interface PersistentSessionStatus {
@@ -62,6 +64,10 @@ function mapTaskStatusToModal(
   s: QRLoginStatus['status'] | undefined
 ): PersistentSession['status'] {
   switch (s) {
+    case 'initializing':
+      return 'initializing';
+    case 'ready':
+      return 'ready';
     case 'pending':
       return 'ready';
     case 'scanning':
@@ -178,10 +184,16 @@ export function usePersistentQRLogin(): UsePersistentQRLoginReturn {
     const newStatus = mapWebSocketStatusToModal(data.status);
     
     // 更新会话状态
-    if (newStatus !== currentSession.status) {
+    if (newStatus !== currentSession.status || data.userName) {
       setSessions(prev => ({
         ...prev,
-        [platform]: { ...currentSession, status: newStatus },
+        [platform]: { 
+          ...currentSession, 
+          status: newStatus,
+          message: data.message || currentSession.message,
+          // 如果后端传了用户名，说明登录成功
+          userName: data.userName || currentSession.userName
+        },
       }));
     }
   }, []);
@@ -260,6 +272,23 @@ export function usePersistentQRLogin(): UsePersistentQRLoginReturn {
     },
     [startOrRestartLogin]
   );
+
+  // 心跳定时器：保持后端浏览器实例存活
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const cur = sessionsRef.current;
+      for (const p of PLATFORMS) {
+        const s = cur[p];
+        // 只有正在进行的任务需要心跳
+        if (s?.sessionId && s.status !== 'success' && s.status !== 'failed' && s.status !== 'expired') {
+          // 这里使用异步调用但不等待，避免阻塞定时器
+          persistentHeartbeat(s.sessionId).catch((e: Error) => console.warn(`Heartbeat for ${p} failed:`, e));
+        }
+      }
+    }, 15000); // 每 15 秒发一次心跳
+
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const cancelAllOpen = () => {

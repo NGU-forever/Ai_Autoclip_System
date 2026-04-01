@@ -33,7 +33,7 @@ ENV VITE_OPENSTORYLINE_QIANKUN_ENTRY=$VITE_OPENSTORYLINE_QIANKUN_ENTRY
 RUN npm run build
 
 # 生产镜像
-FROM mirror.ccs.tencentyun.com/library/nginx:1.27.2-alpine AS production
+FROM pzm2mntd3t74vneyhy.xuanyuan.run/nginx:1.27.2-alpine AS production
 
 # 复制构建产物到 Nginx 目录
 COPY --from=builder /app/dist /usr/share/nginx/html

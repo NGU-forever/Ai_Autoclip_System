@@ -678,22 +678,36 @@ async def qr_login_websocket(websocket: WebSocket, session_id: str):
         })
         
         # 保持连接，处理客户端消息
+        last_heartbeat_time = asyncio.get_event_loop().time()
         while True:
             try:
-                data = await websocket.receive_text()
-                if data == "ping":
-                    await websocket.send_text("pong")
-                elif data == "status":
-                    # 客户端请求当前状态
-                    session = manager.get_session(session_id)
-                    if session:
-                        await websocket.send_json({
-                            "sessionId": session_id,
-                            "platform": session.platform,
-                            "status": session.status.value,
-                            "userName": session.user_name,
-                            "error": session.error_msg,
-                        })
+                # 使用 wait_for 来实现定期自动心跳（即使客户端不发消息）
+                try:
+                    data = await asyncio.wait_for(websocket.receive_text(), timeout=15.0)
+                    if data == "ping":
+                        await websocket.send_text("pong")
+                    elif data == "status":
+                        # 客户端请求当前状态
+                        session = manager.get_session(session_id)
+                        if session:
+                            await websocket.send_json({
+                                "sessionId": session_id,
+                                "platform": session.platform,
+                                "status": session.status.value,
+                                "userName": session.user_name,
+                                "error": session.error_msg,
+                            })
+                    
+                    # 收到任何消息都视为活跃，更新管理器中的心跳
+                    manager.update_heartbeat(session_id)
+                    last_heartbeat_time = asyncio.get_event_loop().time()
+                    
+                except asyncio.TimeoutError:
+                    # 15秒没收到消息，主动更新一次心跳（只要 WS 还连着）
+                    manager.update_heartbeat(session_id)
+                    last_heartbeat_time = asyncio.get_event_loop().time()
+                    continue
+                    
             except WebSocketDisconnect:
                 break
             except Exception as e:
