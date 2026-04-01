@@ -8,29 +8,39 @@ import asyncio
 import logging
 import os
 import uuid
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional
 
 from src.config import settings
+from uploader.utils.playwright_net import (
+    merge_chromium_launch_options,
+    goto_with_retry,
+    user_friendly_uploader_error,
+    platform_label_for_error,
+)
+from uploader.conf import LOCAL_CHROME_PATH
+from uploader.utils.base_social_media import set_init_script
+from uploader.utils.douyin_speed_routes import attach_douyin_speed_routes
+from playwright.async_api import async_playwright
 
 from .models import LoginStatus, LoginTask
-from .douyin import DouyinLogin
-from .tencent import TencentLogin
-from .xhs import XHSLogin
+from .drivers import get_driver
+from .success_detector import LoginSuccessDetector
 
 logger = logging.getLogger(__name__)
 
-# 平台注册表
-PLATFORM_REGISTRY = {
-    "douyin": DouyinLogin,
-    "tencent": TencentLogin,
-    "xhs": XHSLogin,
+# 平台与初始 URL 的映射
+PLATFORM_URLS = {
+    "douyin": "https://creator.douyin.com/",
+    "tencent": "https://channels.weixin.qq.com/login.html",
+    "xhs": "https://creator.xiaohongshu.com/",
 }
 
 
 class QRLoginService:
-    """二维码登录服务"""
+    """二维码登录服务 (新驱动架构版)"""
 
     def __init__(self):
         self.tasks: Dict[str, LoginTask] = {}
@@ -68,45 +78,106 @@ class QRLoginService:
 
         # 启动异步任务执行登录流程
         logger.info(f"Starting login task {task_id} for platform {platform}")
-        task.runner = asyncio.create_task(self._do_login(task))
+        task.runner = asyncio.create_task(self._do_login_with_driver(task))
 
         return task
 
-    async def _do_login(self, task: LoginTask):
-        """执行登录流程（在后台运行）"""
+    async def _do_login_with_driver(self, task: LoginTask):
+        """执行登录流程（驱动化重构版）"""
+        playwright = None
+        browser = None
         try:
-            if task.platform not in PLATFORM_REGISTRY:
+            url = PLATFORM_URLS.get(task.platform)
+            if not url:
                 task.status = LoginStatus.FAILED
                 task.error_msg = f"不支持的平台: {task.platform}"
                 task.qr_ready.set()
                 return
 
-            # 获取对应平台的登录类并执行
-            login_class = PLATFORM_REGISTRY[task.platform]
-            login_instance = login_class()
-            await login_instance.login(task)
+            # 1. 启动浏览器 (一键式任务不走池化，保持完全独立以保兼容)
+            playwright = await async_playwright().start()
+            launch_options = merge_chromium_launch_options({"headless": True})
+            if LOCAL_CHROME_PATH:
+                launch_options["executable_path"] = LOCAL_CHROME_PATH
+            
+            browser = await playwright.chromium.launch(**launch_options)
+            context = await browser.new_context(
+                viewport={"width": 1280, "height": 800},
+                locale="zh-CN"
+            )
+            context = await set_init_script(context)
+            if task.platform == "douyin":
+                await attach_douyin_speed_routes(context)
+
+            page = await context.new_page()
+            
+            # 2. 导航
+            await goto_with_retry(
+                page, url, wait_until="domcontentloaded", log_label=f"task {task.id}"
+            )
+            
+            # 3. 获取驱动
+            driver = get_driver(task.platform)
+            
+            # 4. 准备与捕获二维码
+            await driver.prepare_login_page(page)
+            ok = await driver.capture_qr_code(page, task.qr_code_path)
+            if not ok:
+                raise RuntimeError("二维码捕获失败")
+                
+            task.qr_ready.set()
+            logger.info(f"QR Ready for task {task.id}")
+
+            # 5. 循环检测状态
+            timeout = settings.get_platform_qr_validity(task.platform)
+            for _ in range(timeout):
+                # 检查状态
+                if await LoginSuccessDetector.check(page, task.platform):
+                    # 成功
+                    task.user_name = await driver.get_user_name(page)
+                    # 保存 Cookie
+                    storage = await context.storage_state()
+                    import json
+                    cookie_filename = f"{uuid.uuid4().hex}.json"
+                    dest = Path(settings.get_platform_cookies_path(task.platform)) / cookie_filename
+                    os.makedirs(dest.parent, exist_ok=True)
+                    with open(dest, "w", encoding="utf-8") as f:
+                        json.dump(storage, f, ensure_ascii=False, indent=2)
+                    
+                    task.cookie_file = cookie_filename
+                    task.status = LoginStatus.SUCCESS
+                    logger.info(f"Task {task.id} login success: {task.user_name}")
+                    return
+
+                # 驱动检测扫码/过期状态
+                scan_status = await driver.detect_scan_status(page)
+                if scan_status == "scanning":
+                    task.status = LoginStatus.SCANNING
+                elif scan_status == "expired":
+                    task.status = LoginStatus.FAILED
+                    task.error_msg = "二维码已过期"
+                    return
+
+                await asyncio.sleep(2)
+
+            task.status = LoginStatus.FAILED
+            task.error_msg = "登录超时"
 
         except asyncio.CancelledError:
             task.status = LoginStatus.FAILED
-            if not task.error_msg:
-                task.error_msg = "用户取消"
+            task.error_msg = "用户取消"
             task.qr_ready.set()
-            logger.info("QR login task %s cancelled", task.id)
             raise
         except Exception as e:
-            logger.error(f"Error in QR login for {task.platform}: {str(e)}")
+            logger.error(f"Error in task {task.id}: {e}")
             task.status = LoginStatus.FAILED
-            # 如果错误信息还没有被设置，使用通用错误处理
-            if not task.error_msg:
-                from uploader.utils.playwright_net import (
-                    user_friendly_uploader_error,
-                    platform_label_for_error,
-                )
-                task.error_msg = user_friendly_uploader_error(
-                    e, platform_label_for_error(task.platform)
-                )
+            task.error_msg = user_friendly_uploader_error(e, platform_label_for_error(task.platform))
             task.qr_ready.set()
         finally:
+            if browser:
+                await browser.close()
+            if playwright:
+                await playwright.stop()
             task.updated_at = datetime.now()
 
     def get_task(self, task_id: str) -> Optional[LoginTask]:
@@ -114,19 +185,16 @@ class QRLoginService:
         return self.tasks.get(task_id)
 
     async def get_qr_code_data(self, task_id: str) -> Optional[bytes]:
-        """获取二维码图片数据。使用 asyncio.Event 等待后台任务完成截图，零延迟通知。"""
+        """获取二维码图片数据"""
         task = self.tasks.get(task_id)
         if not task:
             return None
 
-        # 等待后台 Playwright 任务完成 QR 截图（event.set()），最多等 120 秒
         try:
             await asyncio.wait_for(task.qr_ready.wait(), timeout=120)
         except asyncio.TimeoutError:
-            logger.warning(f"QR ready timeout for task {task_id}")
             return None
 
-        # Event 已 set，读取文件
         p = task.qr_code_path
         if p and os.path.exists(p) and os.path.getsize(p) >= 200:
             try:
@@ -134,7 +202,6 @@ class QRLoginService:
                     return f.read()
             except OSError:
                 pass
-
         return None
 
     def cancel_task(self, task_id: str):
@@ -144,10 +211,8 @@ class QRLoginService:
             task.status = LoginStatus.FAILED
             task.error_msg = "用户取消"
             task.qr_ready.set()
-            runner = task.runner
-            if runner is not None and not runner.done():
-                runner.cancel()
-            # 清理二维码文件
+            if task.runner and not task.runner.done():
+                task.runner.cancel()
             if task.qr_code_path and os.path.exists(task.qr_code_path):
                 try:
                     os.remove(task.qr_code_path)
@@ -155,26 +220,19 @@ class QRLoginService:
                     pass
 
 
-# 全局服务实例
 _qr_login_service: Optional[QRLoginService] = None
 
 
 def get_qr_login_service() -> QRLoginService:
-    """获取扫码登录服务实例（单例）"""
     global _qr_login_service
     if _qr_login_service is None:
         _qr_login_service = QRLoginService()
     return _qr_login_service
 
 
-# 导出公共 API
 __all__ = [
     "LoginStatus",
     "LoginTask",
     "QRLoginService",
     "get_qr_login_service",
-    "DouyinLogin",
-    "TencentLogin",
-    "XHSLogin",
-    "PLATFORM_REGISTRY",
 ]

@@ -2,6 +2,11 @@
 """
 持久化浏览器会话服务
 用于后台常驻浏览器实例，支持二维码刷新而无需重启浏览器
+
+优化特性：
+1. 浏览器实例池化：全局共享 Browser，每个会话使用轻量级 Context
+2. 增强异常恢复：心跳检查中包含浏览器健康检测，支持自动恢复
+3. 统一配置参数：所有超时参数从 settings 读取，支持环境变量覆盖
 """
 
 import asyncio
@@ -14,10 +19,12 @@ from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from playwright.async_api import async_playwright, Browser, BrowserContext, Frame, Page
+from playwright.async_api import async_playwright, Browser, BrowserContext, Frame, Page, Playwright
 
 from src.config import settings
 from uploader.conf import LOCAL_CHROME_PATH
+from src.qr_login.drivers import get_driver
+from src.qr_login.success_detector import LoginSuccessDetector
 from uploader.qr_login_service import get_qr_login_service
 from uploader.utils.base_social_media import set_init_script
 from uploader.utils.douyin_speed_routes import attach_douyin_speed_routes
@@ -48,7 +55,7 @@ class PersistentSession:
     id: str
     platform: str  # douyin, tencent, xhs
     status: SessionStatus
-    browser: Optional[Browser] = None
+    # Note: browser 实例现在由 PersistentBrowserManager 全局管理，会话只保存 context 和 page
     context: Optional[BrowserContext] = None
     page: Optional[Page] = None
     qr_code_path: Optional[str] = None
@@ -61,31 +68,54 @@ class PersistentSession:
     _login_success_event: asyncio.Event = field(default_factory=asyncio.Event)
     # Phase 2+4: 显式跟踪所有后台任务，关闭时统一取消
     _background_tasks: set = field(default_factory=set)
+    # 会话恢复标记：浏览器崩溃后需要恢复
+    _needs_recovery: bool = False
+    # 保存会话的初始 URL 用于恢复
+    _init_url: Optional[str] = None
+    # 是否附加了抖音加速路由
+    _attach_speed_routes: bool = False
 
 
 class PersistentBrowserManager:
-    """持久化浏览器管理器"""
+    """持久化浏览器管理器
     
-    # 心跳超时时间（秒）
-    HEARTBEAT_TIMEOUT = 30
-    # 心跳检查间隔（秒）
-    HEARTBEAT_CHECK_INTERVAL = 10
-    # 二维码有效期（秒）
-    QR_CODE_VALIDITY = 300  # 5分钟
+    采用浏览器实例池化设计：
+    - 全局共享一个 Browser 实例（重量级）
+    - 每个会话创建独立的 BrowserContext（轻量级，类似无痕窗口）
+    - 大幅降低资源占用，提升启动速度
+    """
+    
+    # 从 settings 读取配置，支持环境变量覆盖
+    HEARTBEAT_TIMEOUT = settings.browser_heartbeat_timeout
+    HEARTBEAT_CHECK_INTERVAL = settings.browser_heartbeat_check_interval
+    QR_CODE_VALIDITY = settings.browser_qr_validity
+    QR_WAIT_TIMEOUT = settings.browser_qr_wait_timeout
+    REFRESH_QR_WAIT_TIMEOUT = settings.browser_refresh_qr_wait_timeout
+    LOGIN_POLL_MAX_TIME = settings.browser_login_poll_max_time
+    MAX_CONCURRENT_SESSIONS = settings.browser_max_concurrent_sessions
     
     def __init__(self):
         self.sessions: Dict[str, PersistentSession] = {}
         self._cleanup_task: Optional[asyncio.Task] = None
         self._lock = asyncio.Lock()
+        
+        # 全局浏览器实例（池化核心）
+        self._playwright: Optional[Playwright] = None
+        self._browser: Optional[Browser] = None
+        self._browser_lock = asyncio.Lock()
+        self._browser_started = False
     
     async def start(self):
-        """启动管理器，开始心跳检查任务"""
+        """启动管理器，初始化全局浏览器实例，开始心跳检查任务"""
         if self._cleanup_task is None or self._cleanup_task.done():
             self._cleanup_task = asyncio.create_task(self._cleanup_loop())
-            logger.info("PersistentBrowserManager started")
+        
+        # 启动全局浏览器实例
+        await self._ensure_browser()
+        logger.info("PersistentBrowserManager started")
     
     async def stop(self):
-        """停止管理器，关闭所有会话"""
+        """停止管理器，关闭所有会话和全局浏览器实例"""
         if self._cleanup_task and not self._cleanup_task.done():
             self._cleanup_task.cancel()
             try:
@@ -97,7 +127,53 @@ class PersistentBrowserManager:
         for session in list(self.sessions.values()):
             await self.close_session(session.id)
         
+        # 关闭全局浏览器实例
+        await self._stop_global_browser()
+        
         logger.info("PersistentBrowserManager stopped")
+    
+    async def _ensure_browser(self) -> Browser:
+        """确保全局浏览器实例已启动（线程安全）
+        
+        这是浏览器池化的核心方法：所有会话共享同一个 Browser 实例，
+        每个会话只创建轻量级的 BrowserContext。
+        """
+        async with self._browser_lock:
+            if self._browser is not None and not self._browser.is_closed():
+                return self._browser
+            
+            # 启动新的浏览器实例
+            if self._playwright is None:
+                self._playwright = await async_playwright().start()
+            
+            launch_options = merge_chromium_launch_options({"headless": True})
+            if LOCAL_CHROME_PATH:
+                launch_options["executable_path"] = LOCAL_CHROME_PATH
+            
+            self._browser = await self._playwright.chromium.launch(**launch_options)
+            self._browser_started = True
+            logger.info("Global browser instance started (pooling mode)")
+            return self._browser
+    
+    async def _stop_global_browser(self):
+        """关闭全局浏览器实例"""
+        async with self._browser_lock:
+            if self._browser and not self._browser.is_closed():
+                try:
+                    await self._browser.close()
+                    logger.info("Global browser instance closed")
+                except Exception as e:
+                    logger.debug(f"Error closing global browser: {e}")
+                self._browser = None
+            
+            if self._playwright:
+                try:
+                    await self._playwright.stop()
+                except Exception as e:
+                    logger.debug(f"Error stopping playwright: {e}")
+                self._playwright = None
+            
+            self._browser_started = False
     
     async def _cleanup_loop(self):
         """定期清理超时会话的后台任务"""
@@ -111,17 +187,36 @@ class PersistentBrowserManager:
                 logger.error(f"Error in cleanup loop: {e}")
     
     async def _cleanup_expired_sessions(self):
-        """清理心跳超时的会话"""
+        """清理心跳超时的会话，并处理需要恢复的会话"""
         now = time.time()
         expired_sessions = []
+        recovery_sessions = []
         
         for session_id, session in self.sessions.items():
+            # 检查心跳超时
             if now - session.last_heartbeat > self.HEARTBEAT_TIMEOUT:
                 expired_sessions.append(session_id)
+            # 检查是否需要恢复
+            elif session._needs_recovery and session.status not in [
+                SessionStatus.SUCCESS, SessionStatus.FAILED
+            ]:
+                recovery_sessions.append(session_id)
         
+        # 关闭超时会话
         for session_id in expired_sessions:
             logger.info(f"Session {session_id} heartbeat timeout, closing")
             await self.close_session(session_id)
+        
+        # 尝试恢复崩溃的会话
+        for session_id in recovery_sessions:
+            logger.info(f"Session {session_id} needs recovery, attempting auto-recovery")
+            recovered = await self.recover_session(session_id)
+            if not recovered:
+                logger.warning(f"Failed to recover session {session_id}, marking as failed")
+                session = self.sessions.get(session_id)
+                if session:
+                    session.status = SessionStatus.FAILED
+                    session.error_msg = "浏览器进程异常，恢复失败"
     
     def _ensure_dirs(self):
         """确保目录存在"""
@@ -148,6 +243,10 @@ class PersistentBrowserManager:
             for s in existing:
                 logger.info(f"Closing existing session {s.id} for platform {platform}")
                 await self._close_session_internal(s.id)
+            
+            # 检查并发会话数限制
+            if len(self.sessions) >= self.MAX_CONCURRENT_SESSIONS:
+                raise RuntimeError(f"Too many concurrent sessions (max: {self.MAX_CONCURRENT_SESSIONS})")
             
             session_id = str(uuid.uuid4())
             qr_dir = self._ensure_dirs()
@@ -189,32 +288,32 @@ class PersistentBrowserManager:
             session.qr_ready.set()
 
     async def _dispose_session_browser_resources(self, session: PersistentSession) -> None:
-        """关闭会话内 Playwright 资源，不从 sessions 中移除（用于 FAILED 等状态释放进程内资源）。"""
+        """关闭会话内 Playwright 资源，不从 sessions 中移除（用于 FAILED 等状态释放进程内资源）
+        
+        注意：使用浏览器池化后，Browser 实例是全局共享的，这里只关闭 Context 和 Page。
+        """
+        # 关闭 page
         try:
             if session.page:
                 await session.page.close()
         except Exception as e:
             logger.debug("dispose: page close: %s", e)
         session.page = None
+        
+        # 关闭 context
         try:
             if session.context:
                 await session.context.close()
         except Exception as e:
             logger.debug("dispose: context close: %s", e)
         session.context = None
-        try:
-            if session.browser:
-                await session.browser.close()
-        except Exception as e:
-            logger.debug("dispose: browser close: %s", e)
-        session.browser = None
-        try:
-            pw = getattr(session, "_playwright", None)
-            if pw is not None:
-                await pw.stop()
-        except Exception as e:
-            logger.debug("dispose: playwright stop: %s", e)
-        setattr(session, "_playwright", None)
+        
+        # 注意：不再关闭 browser 和 playwright，因为它们是全局共享的
+        # session.browser 和 session._playwright 字段已不再使用（已从 dataclass 移除）
+    
+    async def _dispose_session_context_only(self, session: PersistentSession) -> None:
+        """仅关闭会话的 Context 和 Page，用于会话恢复场景"""
+        await self._dispose_session_browser_resources(session)
     
     # ─────────────────────────────────────────────────────────────────
     # Phase 2: 共享浏览器初始化基础方法
@@ -228,20 +327,21 @@ class PersistentBrowserManager:
         attach_speed_routes: bool = False,
     ) -> Page:
         """
-        共享浏览器初始化逻辑：启动 Playwright -> Browser -> Context -> Page -> goto。
+        共享浏览器初始化逻辑：使用全局 Browser -> 创建 Context -> Page -> goto。
         各平台只需传入目标 URL，平台特有逻辑（捕获二维码）在调用方实现。
         返回已加载就绪的 Page 对象。
+        
+        注意：这是浏览器池化的核心，所有会话共享同一个 Browser 实例，
+        每个会话只创建轻量级的 BrowserContext（类似无痕窗口）。
         """
-        playwright = await async_playwright().start()
-        session._playwright = playwright
+        # 确保全局浏览器实例已启动
+        browser = await self._ensure_browser()
+        
+        # 保存配置用于可能的恢复
+        session._init_url = url
+        session._attach_speed_routes = attach_speed_routes
 
-        launch_options = merge_chromium_launch_options({"headless": True})
-        if LOCAL_CHROME_PATH:
-            launch_options["executable_path"] = LOCAL_CHROME_PATH
-
-        browser = await playwright.chromium.launch(**launch_options)
-        session.browser = browser
-
+        # 创建轻量级 Context（比启动新 Browser 快 3-5 倍，资源占用低）
         context = await browser.new_context(
             viewport={"width": 1280, "height": 800},
             locale="zh-CN",
@@ -269,163 +369,195 @@ class PersistentBrowserManager:
         )
         return page
 
-    async def _init_douyin(self, session: PersistentSession):
-        """初始化抖音浏览器"""
-        logger.info(f"Initializing Douyin browser for session {session.id}")
+    # ─────────────────────────────────────────────────────────────────
+    # Driver & Manager 架构：平台初始化（Phase 4 重构）
+    # ─────────────────────────────────────────────────────────────────
+    
+    # 平台 URL 配置
+    PLATFORM_URLS = {
+        "douyin": "https://creator.douyin.com/",
+        "tencent": "https://channels.weixin.qq.com/login.html",
+        "xhs": "https://creator.xiaohongshu.com/",
+    }
+    
+    async def _init_platform(self, session: PersistentSession):
+        """统一的平台初始化方法（使用 Driver 架构）
+        
+        Manager 职责：
+        1. 管理浏览器生命周期（browser/context/page）
+        2. 调用 Driver 执行平台特定的 DOM 操作
+        3. 统一成功判定
+        """
+        platform = session.platform
+        logger.info(f"Initializing {platform} browser for session {session.id}")
+        
         try:
+            # 1. 初始化浏览器上下文（Manager 职责）
+            url = self.PLATFORM_URLS.get(platform)
+            if not url:
+                raise ValueError(f"Unknown platform: {platform}")
+            
             page = await self._init_browser_context(
                 session,
-                "https://creator.douyin.com/",
-                log_label=f"Douyin session {session.id} goto",
-                attach_speed_routes=True,
+                url,
+                log_label=f"{platform} session {session.id} goto",
+                attach_speed_routes=(platform == "douyin"),
             )
-            # 等待登录弹层出现（替代固定 sleep(2.8)）
-            try:
-                await page.wait_for_selector(
-                    "canvas, text=扫码登录, text=二维码",
-                    state="visible",
-                    timeout=15000,
-                )
-            except Exception:
-                pass  # 若未找到则继续截图流程（_prime 会尝试切换模式）
-
-            await self._capture_douyin_qr(session)
+            
+            # 2. 获取 Driver（纯 DOM 操作层）
+            driver = get_driver(platform)
+            
+            # 3. 准备登录页面（Driver 职责）
+            await driver.prepare_login_page(page)
+            
+            # 4. 捕获二维码（Driver 职责）
+            ok = await driver.capture_qr_code(page, session.qr_code_path)
+            png_ok = (
+                ok
+                and os.path.exists(session.qr_code_path)
+                and os.path.getsize(session.qr_code_path) >= 200
+            )
+            
+            if not png_ok:
+                session.status = SessionStatus.FAILED
+                session.error_msg = "二维码生成失败"
+                session.qr_ready.set()
+                await self._notify_status_change(session)
+                return
+            
+            # 5. 二维码就绪
+            session.status = SessionStatus.READY
+            session.qr_ready.set()
+            logger.info(f"{platform} QR code captured for session {session.id}")
+            await self._notify_status_change(session)
+            
+            # 6. 附加登录监听器和启动轮询
             self._attach_login_monitors(session)
-            self._track_task(session, self._poll_login_status(session))
-
+            self._track_task(session, self._poll_login_status_with_driver(session, driver))
+            
         except Exception as e:
-            logger.error(f"Error during Douyin initialization: {e}")
+            logger.error(f"Error during {platform} initialization: {e}")
             session.status = SessionStatus.FAILED
-            session.error_msg = user_friendly_uploader_error(e, "抖音创作者")
+            session.error_msg = user_friendly_uploader_error(
+                e, platform_label_for_error(platform)
+            )
             await self._dispose_session_browser_resources(session)
             session.qr_ready.set()
     
-    async def _capture_douyin_qr(self, session: PersistentSession):
-        """捕获抖音二维码（专用 prime + 中心 canvas 策略，避免作品体裁轮播误识别）"""
-        qr_service = get_qr_login_service()
-        ok = await qr_service._capture_douyin_login_qr(
-            session.page,
-            session.qr_code_path,
-        )
-        png_ok = (
-            ok
-            and os.path.exists(session.qr_code_path)
-            and os.path.getsize(session.qr_code_path) >= 200
-        )
-        if png_ok:
-            session.status = SessionStatus.READY
-            session.qr_ready.set()
-            logger.info(f"Douyin QR code captured for session {session.id}")
-        else:
-            session.status = SessionStatus.FAILED
-            session.error_msg = "二维码生成失败"
-            session.qr_ready.set()
+    # 保留旧的初始化方法作为兼容层，内部调用新的统一方法
+    async def _init_douyin(self, session: PersistentSession):
+        """初始化抖音浏览器（兼容层，使用 Driver 架构）"""
+        await self._init_platform(session)
     
     async def _init_tencent(self, session: PersistentSession):
-        """初始化视频号浏览器"""
-        logger.info(f"Initializing Tencent browser for session {session.id}")
-        try:
-            page = await self._init_browser_context(
-                session,
-                "https://channels.weixin.qq.com/login.html",
-                log_label=f"Tencent session {session.id} goto",
-            )
-            # 等待登录元素出现（替代固定 sleep）
-            try:
-                await page.wait_for_selector(
-                    "canvas, img[src*='qr'], .wx-login-qrcode",
-                    state="visible",
-                    timeout=10000,
-                )
-            except Exception:
-                pass
-
-            await self._capture_tencent_qr(session)
-            self._attach_login_monitors(session)
-            self._track_task(session, self._poll_login_status(session))
-
-        except Exception as e:
-            logger.error(f"Error during Tencent initialization: {e}")
-            session.status = SessionStatus.FAILED
-            session.error_msg = user_friendly_uploader_error(e, "微信视频号")
-            await self._dispose_session_browser_resources(session)
-            session.qr_ready.set()
+        """初始化视频号浏览器（兼容层，使用 Driver 架构）"""
+        await self._init_platform(session)
     
-    async def _capture_tencent_qr(self, session: PersistentSession):
-        """捕获视频号二维码（复用原逻辑）"""
-        qr_service = get_qr_login_service()
-        ok = await qr_service._capture_login_qr_fast(
-            session.page, session.qr_code_path, "Tencent"
-        )
-        
-        png_ok = (
-            ok
-            and os.path.exists(session.qr_code_path)
-            and os.path.getsize(session.qr_code_path) >= 200
-        )
-        
-        if png_ok:
-            session.status = SessionStatus.READY
-            session.qr_ready.set()
-            logger.info(f"Tencent QR code captured for session {session.id}")
-        else:
-            session.status = SessionStatus.FAILED
-            session.error_msg = "二维码生成失败"
-            session.qr_ready.set()
-
     async def _init_xhs(self, session: PersistentSession):
-        """初始化小红书浏览器"""
-        logger.info(f"Initializing XiaoHongShu browser for session {session.id}")
+        """初始化小红书浏览器（兼容层，使用 Driver 架构）"""
+        await self._init_platform(session)
+    
+    async def _poll_login_status_with_driver(self, session: PersistentSession, driver) -> None:
+        """使用 Driver 的状态轮询（统一成功判定）
+        
+        职责分离：
+        - Driver: 快速检测扫码状态变化（scanning/expired）
+        - Manager: 统一成功判定（使用 LoginSuccessDetector）
+        """
         try:
-            page = await self._init_browser_context(
-                session,
-                "https://creator.xiaohongshu.com/",
-                log_label=f"XHS session {session.id} goto",
-            )
-            qr_svc = get_qr_login_service()
-            await qr_svc._wait_xhs_login_ui(page)
-            await qr_svc._switch_xhs_to_scan_qr_mode(page)
-
-            await self._capture_xhs_qr(session)
-            self._attach_login_monitors(session)
-            self._track_task(session, self._poll_login_status(session))
-
+            platform_timeout = settings.get_platform_qr_validity(session.platform)
+            auto_refresh_interval = 10
+            last_auto_refresh_check = 0
+            
+            for i in range(platform_timeout):
+                # 检查会话是否还存在
+                if session.id not in self.sessions:
+                    logger.info(f"Session {session.id} no longer exists, stopping poll")
+                    return
+                
+                # 检查是否需要恢复（浏览器崩溃）
+                if session._needs_recovery:
+                    logger.info(f"Session {session.id} marked for recovery, stopping poll")
+                    return
+                
+                # 检查是否已登录成功
+                if session.status == SessionStatus.SUCCESS:
+                    await self._notify_status_change(session)
+                    return
+                
+                page = session.page
+                if not page:
+                    logger.warning(f"Page not available for session {session.id}")
+                    return
+                
+                # ─────────────────────────────────────────────────────────
+                # Driver 层：快速检测扫码状态
+                # ─────────────────────────────────────────────────────────
+                scan_status = await driver.detect_scan_status(page)
+                
+                if scan_status == 'scanning' and session.status != SessionStatus.SCANNING:
+                    session.status = SessionStatus.SCANNING
+                    logger.info(f"[{session.platform}] QR code scanned, waiting for confirmation")
+                    await self._notify_status_change(session)
+                
+                elif scan_status == 'expired' and session.status == SessionStatus.READY:
+                    logger.info(f"[{session.platform}] QR expired detected by Driver")
+                    # 触发自动刷新
+                    if await driver.refresh_qr_code(page):
+                        logger.info(f"[{session.platform}] QR auto-refreshed by Driver")
+                        last_auto_refresh_check = 0
+                        continue
+                    else:
+                        session.status = SessionStatus.EXPIRED
+                        session.error_msg = "二维码已过期"
+                        await self._notify_status_change(session)
+                        return
+                
+                # ─────────────────────────────────────────────────────────
+                # Manager 层：统一成功判定（使用 LoginSuccessDetector）
+                # ─────────────────────────────────────────────────────────
+                if await LoginSuccessDetector.check(page, session.platform):
+                    # 登录成功，获取用户名
+                    session.user_name = await driver.get_user_name(page)
+                    await self._handle_login_success(session)
+                    await self._notify_status_change(session)
+                    return
+                
+                # Driver 辅助：自动刷新检测（每10秒一次）
+                if session.status == SessionStatus.READY and i >= last_auto_refresh_check + auto_refresh_interval:
+                    last_auto_refresh_check = i
+                    is_expired = await self._detect_qr_expired(session)
+                    if is_expired:
+                        logger.info(f"[{session.platform}] QR expired detected at {i}s, auto-refreshing")
+                        await self._notify_status_change(session)
+                        if await driver.refresh_qr_code(page):
+                            logger.info(f"[{session.platform}] QR auto-refreshed successfully")
+                            last_auto_refresh_check = 0
+                            continue
+                        else:
+                            session.status = SessionStatus.EXPIRED
+                            session.error_msg = "二维码已过期，自动刷新失败"
+                            await self._notify_status_change(session)
+                            return
+                
+                # 每10秒记录一次日志
+                if i > 0 and i % 10 == 0:
+                    current_url = page.url
+                    logger.debug(f"[{session.platform}] Polling login status: {i}s/{platform_timeout}s, url={current_url}")
+                
+                await asyncio.sleep(1)
+            
+            # 超时
+            logger.warning(f"Login timeout for session {session.id} ({session.platform})")
+            session.status = SessionStatus.EXPIRED
+            session.error_msg = "登录超时，请刷新二维码重试"
+            await self._notify_status_change(session)
+            
         except Exception as e:
-            logger.error(f"Error during XiaoHongShu initialization: {e}")
+            logger.error(f"Error polling login status for session {session.id}: {e}")
             session.status = SessionStatus.FAILED
-            session.error_msg = user_friendly_uploader_error(e, "小红书创作者")
-            await self._dispose_session_browser_resources(session)
-            session.qr_ready.set()
-
-    async def _capture_xhs_qr(self, session: PersistentSession):
-        """捕获小红书二维码（复用原逻辑）"""
-        qr_service = get_qr_login_service()
-        panel_rect = await qr_service.get_xhs_login_panel_viewport_rect(session.page)
-        ok = await qr_service._capture_login_qr_fast(
-            session.page,
-            session.qr_code_path,
-            "XHS",
-            min_qr_area=120 * 120,
-            initial_sleep=0.2,
-            poll_interval=0.18,
-            pre_screenshot_sleep=0.06,
-            container_rect=panel_rect,
-        )
-        
-        png_ok = (
-            ok
-            and os.path.exists(session.qr_code_path)
-            and os.path.getsize(session.qr_code_path) >= 200
-        )
-        
-        if png_ok:
-            session.status = SessionStatus.READY
-            session.qr_ready.set()
-            logger.info(f"XiaoHongShu QR code captured for session {session.id}")
-        else:
-            session.status = SessionStatus.FAILED
-            session.error_msg = "二维码生成失败"
-            session.qr_ready.set()
+            session.error_msg = f"检测登录状态出错: {str(e)[:100]}"
+            await self._notify_status_change(session)
 
     @staticmethod
     def _url_hard_logged_in(platform: str, url: str) -> bool:
@@ -515,215 +647,101 @@ class PersistentBrowserManager:
     
     # ===== 登录成功检测配置 =====
     # URL 模式：匹配登录成功后的页面路径
-    _LOGIN_SUCCESS_URL_PATTERNS = {
-        "douyin": [
-            "creator.douyin.com/creator-micro",
-            "creator.douyin.com/home",
-            "creator.douyin.com/dashboard",
-        ],
-        "tencent": [
-            "#/platform",
-            "#/creator",
-            "platform/post/create",
-            "platform/post/list",
-            "channels.weixin.qq.com/platform",
-        ],
-        "xhs": [
-            "creator.xiaohongshu.com/creator-micro",
-            "creator.xiaohongshu.com/publish",
-        ],
-    }
-    
-    # DOM 选择器：检测登录成功后页面上的用户相关元素
-    _LOGIN_SUCCESS_DOM_SELECTORS = {
-        "douyin": [
-            ".user-name",
-            ".avatar",
-            "[data-e2e='user-name']",
-            ".user-info",
-            ".nickname",
-            "[class*='userName']",
-            "[class*='avatar']",
-            "div[class*='header'] img",  # 头像图片
-            "span[class*='name']",
-        ],
-        "tencent": [
-            ".user-avatar",
-            ".creator-center",
-            ".user-info",
-            ".nickname",
-            "[class*='avatar']",
-            "[class*='userName']",
-            ".header-user",
-            "img[class*='avatar']",
-        ],
-        "xhs": [
-            ".user-name",
-            ".nickname",
-            "[class*='avatar']",
-            "[class*='userName']",
-            "[class*='nickName']",
-            ".user-info",
-            "img[class*='avatar']",
-            "span[class*='name']",
-        ],
-    }
-    
-    # Cookie 名称：检测登录态的关键 cookie
-    _LOGIN_SUCCESS_COOKIES = {
-        "douyin": ["sessionid", "sid_guard", "sid_tt", "uid_tt", "odin_tt"],
-        "tencent": ["wxtokenkey", "wxuin", "wxsid", "pass_ticket"],
-        "xhs": ["web_session", "webId", "xhsTracker", "userId"],
-    }
+
 
     async def _check_login_success_indicators(self, session: PersistentSession) -> bool:
         """
         综合检测登录成功标志
-        使用多种检测方式提高准确性：URL 匹配、DOM 元素检测、Cookie 检测
-        返回 True 表示检测到登录成功
+        使用统一的 LoginSuccessDetector 提高准确性
         """
-        page = session.page
-        if not page:
+        if not session.page:
             return False
         
-        platform = session.platform
-        current_url = page.url
+        return await LoginSuccessDetector.check(session.page, session.platform)
 
-        if self._url_hard_logged_in(platform, current_url):
-            logger.info(
-                "[%s] Hard URL indicates logged in (session=%s): %s",
-                platform,
-                session.id,
-                current_url,
-            )
-            return True
-
-        ul = current_url.lower()
-        # 勿用宽泛子串「login」屏蔽视频号：成功态仍为 login.html#/platform/...
-        is_login_page = False
-        if platform == "tencent" and "channels.weixin.qq.com/login.html" in ul:
-            frag = (current_url.split("#", 1)[-1] if "#" in current_url else "").lower()
-            is_login_page = not ("platform" in frag or "post" in frag)
-        else:
-            is_login_page = any(
-                x in ul for x in ("passport", "qrconnect", "open.weixin.qq.com", "open.weixin")
-            ) or ("signin" in ul)
-            if "login" in ul and not any(
-                h in ul for h in ("#/platform", "#/creator", "creator-micro/content/upload")
-            ):
-                is_login_page = True
+    async def _detect_qr_expired(self, session: PersistentSession) -> bool:
+        """检测页面是否显示二维码已过期
         
-        score = 0  # 置信度分数
-        detected_methods = []
+        通过两种方式检测：
+        1. 页面文本关键词匹配
+        2. 平台特定的 CSS 选择器匹配
         
-        # 1. URL 检测
-        url_patterns = self._LOGIN_SUCCESS_URL_PATTERNS.get(platform, [])
-        url_matched = any(pattern in current_url for pattern in url_patterns)
-        if url_matched and not is_login_page:
-            score += 2
-            detected_methods.append("url")
-            logger.debug(f"[{platform}] URL pattern matched: {current_url}")
+        Returns:
+            True 表示检测到二维码已过期
+        """
+        if not session.page:
+            return False
         
-        # 2. DOM 元素检测
-        dom_selectors = self._LOGIN_SUCCESS_DOM_SELECTORS.get(platform, [])
-        dom_matched = False
-        for selector in dom_selectors:
-            try:
-                element = await page.query_selector(selector)
-                if element:
-                    # 检查元素是否可见且有内容
-                    is_visible = await element.is_visible()
-                    if is_visible:
-                        text = await element.text_content()
-                        # 小红书等平台登录后会有特定文字提示
-                        if text and 0 < len(text.strip()) <= 64:
-                            dom_matched = True
-                            logger.debug(f"[{platform}] DOM element matched: {selector}, text: {text.strip()[:20]}")
-                            break
-            except Exception:
-                continue
-        
-        if dom_matched:
-            score += 3
-            detected_methods.append("dom")
-        
-        # 3. Cookie 检测
-        cookie_names = self._LOGIN_SUCCESS_COOKIES.get(platform, [])
-        cookie_matched = False
         try:
-            cookies = await page.context.cookies()
-            cookie_dict = {c["name"]: c for c in cookies}
-            matched_cookies = [name for name in cookie_names if name in cookie_dict]
-            if matched_cookies:
-                # 检查 cookie 是否有值且未过期
-                valid_cookies = 0
-                for name in matched_cookies:
-                    cookie = cookie_dict[name]
-                    if cookie.get("value") and len(cookie["value"]) > 5:
-                        # 检查过期时间（如果存在）
-                        expires = cookie.get("expires", -1)
-                        if expires == -1 or expires > time.time():
-                            valid_cookies += 1
-                
-                if valid_cookies >= 1:
-                    cookie_matched = True
-                    logger.debug(f"[{platform}] Cookies matched: {matched_cookies}")
+            page = session.page
+            
+            # 方式1：文本关键词检测
+            page_text = await page.content()
+            expired_keywords = settings.qr_expired_keywords
+            text_match = any(keyword in page_text for keyword in expired_keywords)
+            
+            if text_match:
+                logger.debug(f"[{session.platform}] QR expired detected by keywords")
+                return True
+            
+            # 方式2：CSS 选择器检测（更精确）
+            selectors = settings.qr_expired_selectors.get(session.platform, [])
+            for selector in selectors:
+                try:
+                    element = await page.query_selector(selector)
+                    if element:
+                        is_visible = await element.is_visible()
+                        if is_visible:
+                            logger.debug(f"[{session.platform}] QR expired detected by selector: {selector}")
+                            return True
+                except Exception:
+                    continue
+            
+            return False
         except Exception as e:
-            logger.debug(f"[{platform}] Cookie check error: {e}")
+            logger.debug(f"Error detecting QR expired: {e}")
+            return False
+    
+    async def _notify_status_change(self, session: PersistentSession) -> None:
+        """通知所有监听者会话状态变更
         
-        if cookie_matched:
-            score += 2
-            detected_methods.append("cookie")
-        
-        # 4. 页面标题检测（辅助）
+        通过 WebSocket 推送状态更新到前端
+        """
         try:
-            title = await page.title()
-            title_indicators = {
-                "douyin": ["创作者", "抖音", "创作服务平台"],
-                "tencent": ["视频号", "创作者", "微信"],
-                "xhs": ["小红书", "创作", "创作者中心"],
-            }
-            title_keywords = title_indicators.get(platform, [])
-            if any(kw in title for kw in title_keywords):
-                # 排除登录相关标题
-                if not any(word in title for word in ["登录", "扫码", "Login", "Sign"]):
-                    score += 1
-                    detected_methods.append("title")
-                    logger.debug(f"[{platform}] Title matched: {title}")
-        except Exception:
-            pass
-        
-        # 判断登录成功：需要满足以下条件之一
-        # 1. 总分 >= 3
-        # 2. DOM 元素检测通过 + 任意其他检测（因为 DOM 元素最可靠）
-        # 3. Cookie 检测通过 + URL 匹配（Cookie + URL 也很可靠）
-        # 4. 非登录页且关键 Cookie 已就绪（避免仅靠 Cookie 分数不足导致不落盘 storage_state）
-        is_logged_in = (
-            score >= 3
-            or ("dom" in detected_methods and len(detected_methods) >= 2)
-            or ("cookie" in detected_methods and "url" in detected_methods)
-            or (cookie_matched and not is_login_page)
-        )
-        
-        if is_logged_in:
-            logger.info(
-                f"[{platform}] Login success detected for session {session.id}, "
-                f"score={score}, methods={detected_methods}, url={current_url}"
+            from src.upload.websocket import notify_session_status
+            await notify_session_status(
+                session_id=session.id,
+                platform=session.platform,
+                status=session.status.value,
+                user_name=session.user_name,
+                error=session.error_msg,
             )
-        
-        return is_logged_in
-
+        except Exception as e:
+            # WebSocket 通知失败不应影响主流程
+            logger.debug(f"Failed to notify status change: {e}")
+    
     async def _poll_login_status(self, session: PersistentSession):
-        """轮询检查登录状态"""
+        """轮询检查登录状态（增强版，支持自动刷新和 WebSocket 通知）"""
         try:
-            for i in range(300):  # 最多5分钟
+            # 使用平台特定的超时时间
+            platform_timeout = settings.get_platform_qr_validity(session.platform)
+            auto_refresh_interval = 10  # 每10秒检测一次是否需要自动刷新
+            last_auto_refresh_check = 0
+            
+            for i in range(platform_timeout):
                 # 检查会话是否还存在
                 if session.id not in self.sessions:
                     logger.info(f"Session {session.id} no longer exists, stopping poll")
                     return
                 
+                # 检查是否需要恢复（浏览器崩溃）
+                if session._needs_recovery:
+                    logger.info(f"Session {session.id} marked for recovery, stopping poll")
+                    return
+                
                 # 检查是否已登录成功
                 if session.status == SessionStatus.SUCCESS:
+                    await self._notify_status_change(session)
                     return
                 
                 page = session.page
@@ -735,6 +753,7 @@ class PersistentBrowserManager:
                 is_logged_in = await self._check_login_success_indicators(session)
                 if is_logged_in:
                     await self._handle_login_success(session)
+                    await self._notify_status_change(session)
                     return
                 
                 # 检查是否已扫码（等待确认）
@@ -744,15 +763,40 @@ class PersistentBrowserManager:
                         scan_indicators = ["已扫码", "扫描成功", "Scan success", "请在手机上确认"]
                         page_text = await page.content()
                         if any(ind in page_text for ind in scan_indicators):
+                            old_status = session.status
                             session.status = SessionStatus.SCANNING
                             logger.info(f"[{session.platform}] QR code scanned, waiting for confirmation")
+                            # 状态变更，通知前端
+                            if old_status != session.status:
+                                await self._notify_status_change(session)
                     except Exception:
                         pass
+                
+                # 自动刷新检测（每10秒一次，且至少等待10秒后开始检测）
+                if session.status == SessionStatus.READY and i >= last_auto_refresh_check + auto_refresh_interval:
+                    last_auto_refresh_check = i
+                    is_expired = await self._detect_qr_expired(session)
+                    if is_expired:
+                        logger.info(f"[{session.platform}] QR expired detected at {i}s, auto-refreshing")
+                        await self._notify_status_change(session)  # 通知过期状态
+                        # 触发自动刷新
+                        refresh_ok = await self.refresh_qr_code(session.id)
+                        if refresh_ok:
+                            logger.info(f"[{session.platform}] QR auto-refreshed successfully")
+                            # 刷新成功，重新开始轮询（不返回，继续循环）
+                            last_auto_refresh_check = 0
+                            continue
+                        else:
+                            logger.warning(f"[{session.platform}] QR auto-refresh failed")
+                            session.status = SessionStatus.EXPIRED
+                            session.error_msg = "二维码已过期，自动刷新失败，请手动刷新"
+                            await self._notify_status_change(session)
+                            return
                 
                 # 每10秒记录一次日志
                 if i > 0 and i % 10 == 0:
                     current_url = page.url
-                    logger.debug(f"[{session.platform}] Polling login status: {i}s, url={current_url}")
+                    logger.debug(f"[{session.platform}] Polling login status: {i}s/{platform_timeout}s, url={current_url}")
                 
                 await asyncio.sleep(1)
             
@@ -760,11 +804,13 @@ class PersistentBrowserManager:
             logger.warning(f"Login timeout for session {session.id} ({session.platform})")
             session.status = SessionStatus.EXPIRED
             session.error_msg = "登录超时，请刷新二维码重试"
+            await self._notify_status_change(session)
             
         except Exception as e:
             logger.error(f"Error polling login status for session {session.id}: {e}")
             session.status = SessionStatus.FAILED
             session.error_msg = f"检测登录状态出错: {str(e)[:100]}"
+            await self._notify_status_change(session)
     
     async def _handle_login_success(self, session: PersistentSession):
         """处理登录成功，保存 cookie 到对应平台目录"""
@@ -934,7 +980,8 @@ class PersistentBrowserManager:
         if not success:
             return False, session.error_msg or "刷新二维码失败"
         try:
-            await asyncio.wait_for(session.qr_ready.wait(), timeout=30)
+            # 使用 REFRESH_QR_WAIT_TIMEOUT 替代硬编码的 30
+            await asyncio.wait_for(session.qr_ready.wait(), timeout=self.REFRESH_QR_WAIT_TIMEOUT)
         except asyncio.TimeoutError:
             return False, "二维码生成超时"
         if session.status == SessionStatus.FAILED:
@@ -997,7 +1044,7 @@ class PersistentBrowserManager:
             except asyncio.CancelledError:
                 pass
         
-        # 关闭浏览器资源
+        # 关闭浏览器资源（只关闭 Context 和 Page，不关闭全局 Browser）
         try:
             if session.page:
                 await session.page.close()
@@ -1010,17 +1057,7 @@ class PersistentBrowserManager:
         except Exception as e:
             logger.debug(f"Error closing context: {e}")
         
-        try:
-            if session.browser:
-                await session.browser.close()
-        except Exception as e:
-            logger.debug(f"Error closing browser: {e}")
-        
-        try:
-            if hasattr(session, '_playwright'):
-                await session._playwright.stop()
-        except Exception as e:
-            logger.debug(f"Error stopping playwright: {e}")
+        # 注意：不再关闭 browser 和 playwright（全局共享）
         
         # 清理二维码文件
         if session.qr_code_path and os.path.exists(session.qr_code_path):
@@ -1034,12 +1071,147 @@ class PersistentBrowserManager:
         return self.sessions.get(session_id)
     
     def update_heartbeat(self, session_id: str) -> bool:
-        """更新心跳时间"""
+        """更新心跳时间，同时检查浏览器健康状态
+        
+        增强功能：
+        - 检查 session.page 是否存在且未关闭
+        - 检测浏览器进程是否意外崩溃
+        - 标记需要恢复的会话
+        """
         session = self.sessions.get(session_id)
-        if session:
-            session.last_heartbeat = time.time()
+        if not session:
+            return False
+        
+        # 浏览器健康检查
+        if session.page:
+            try:
+                # 轻量级检查：判断 page 是否已关闭
+                if session.page.is_closed():
+                    logger.warning(f"Session {session_id} page is closed, marking for recovery")
+                    session._needs_recovery = True
+                else:
+                    # 可选：执行更完整的健康检查（如检查 page.context）
+                    # 但 is_closed() 足够轻量且有效
+                    pass
+            except Exception as e:
+                # page 对象异常（可能是浏览器进程崩溃）
+                logger.warning(f"Session {session_id} health check failed: {e}")
+                session._needs_recovery = True
+        elif session.status not in [SessionStatus.SUCCESS, SessionStatus.FAILED]:
+            # 非终态但 page 为 None，可能需要恢复
+            logger.warning(f"Session {session_id} has no page but status is {session.status}, marking for recovery")
+            session._needs_recovery = True
+        
+        session.last_heartbeat = time.time()
+        return True
+    
+    async def recover_session(self, session_id: str) -> bool:
+        """尝试恢复崩溃的会话
+        
+        当浏览器进程崩溃或 page 被意外关闭时，尝试：
+        1. 清理旧的 Context 和 Page
+        2. 创建新的 Context 和 Page
+        3. 重新加载页面
+        
+        注意：使用浏览器池化后，无需重启 Browser，只需重建 Context。
+        """
+        session = self.sessions.get(session_id)
+        if not session:
+            logger.error(f"Cannot recover session {session_id}: session not found")
+            return False
+        
+        if not session._needs_recovery:
+            logger.debug(f"Session {session_id} does not need recovery")
             return True
-        return False
+        
+        # 检查是否可以恢复
+        if session.status in [SessionStatus.SUCCESS, SessionStatus.FAILED]:
+            logger.info(f"Session {session_id} is in final state {session.status}, skipping recovery")
+            return False
+        
+        if not session._init_url:
+            logger.error(f"Cannot recover session {session_id}: no initial URL saved")
+            return False
+        
+        logger.info(f"Attempting to recover session {session_id} ({session.platform})")
+        
+        try:
+            # 步骤1：清理旧资源
+            await self._dispose_session_context_only(session)
+            
+            # 步骤2：确保全局浏览器实例可用
+            browser = await self._ensure_browser()
+            
+            # 步骤3：创建新的 Context
+            context = await browser.new_context(
+                viewport={"width": 1280, "height": 800},
+                locale="zh-CN",
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+                ),
+            )
+            context = await set_init_script(context)
+            if session._attach_speed_routes:
+                await attach_douyin_speed_routes(context)
+            session.context = context
+            
+            # 步骤4：创建新的 Page
+            page = await context.new_page()
+            session.page = page
+            
+            # 步骤5：重新加载页面
+            await goto_with_retry(
+                page,
+                session._init_url,
+                wait_until="domcontentloaded",
+                timeout=60000,
+                retries=2,
+                delay_sec=1.5,
+                log_label=f"{session.platform} recovery {session_id} goto",
+            )
+            
+            # 步骤6：重置状态并重新捕获二维码
+            session.status = SessionStatus.INITIALIZING
+            session.error_msg = None
+            session.qr_ready.clear()
+            session._needs_recovery = False
+            
+            # 重新附加登录监听器
+            self._attach_login_monitors(session)
+            
+            # 重新启动登录状态轮询
+            self._track_task(session, self._poll_login_status(session))
+            
+            # 根据平台重新捕获二维码
+            if session.platform == "douyin":
+                try:
+                    await page.wait_for_selector(
+                        "canvas, text=扫码登录, text=二维码",
+                        state="visible",
+                        timeout=10000,
+                    )
+                except Exception:
+                    pass
+                await self._capture_douyin_qr(session)
+            elif session.platform == "tencent":
+                await asyncio.sleep(1)
+                await self._capture_tencent_qr(session)
+            elif session.platform == "xhs":
+                qr_svc = get_qr_login_service()
+                await qr_svc._wait_xhs_login_ui(page)
+                await qr_svc._switch_xhs_to_scan_qr_mode(page)
+                await self._capture_xhs_qr(session)
+            
+            logger.info(f"Session {session_id} recovered successfully")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to recover session {session_id}: {e}")
+            session.status = SessionStatus.FAILED
+            session.error_msg = f"会话恢复失败: {str(e)[:100]}"
+            session.qr_ready.set()
+            return False
     
     async def get_qr_code_data(self, session_id: str) -> Optional[bytes]:
         """获取二维码图片数据"""
@@ -1049,7 +1221,8 @@ class PersistentBrowserManager:
         
         # 等待二维码就绪
         try:
-            await asyncio.wait_for(session.qr_ready.wait(), timeout=60)
+            # 使用 QR_WAIT_TIMEOUT 替代硬编码的 60
+            await asyncio.wait_for(session.qr_ready.wait(), timeout=self.QR_WAIT_TIMEOUT)
         except asyncio.TimeoutError:
             logger.warning(f"QR ready timeout for session {session_id}")
             return None
