@@ -1,25 +1,11 @@
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
 import logging
-from typing import Dict, Any
-from .exceptions import AppException, NotFoundException, ForbiddenException, UnauthorizedException
+
+from .exceptions import AppException, ErrorResponse
 
 logger = logging.getLogger(__name__)
 
-class ErrorResponse:
-    """标准化的错误响应格式"""
-
-    def __init__(self, code: str, message: str, details: Dict[str, Any] = None):
-        self.code = code
-        self.message = message
-        self.details = details or {}
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "code": self.code,
-            "message": self.message,
-            "details": self.details
-        }
 
 class UploaderException(AppException):
     """Uploader专用异常基类"""

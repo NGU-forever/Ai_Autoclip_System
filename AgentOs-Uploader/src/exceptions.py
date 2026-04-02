@@ -1,9 +1,26 @@
+from typing import Any, Dict
+
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
 import logging
-from .exception_handler import ErrorResponse, UploaderException, UploadException, SessionException, PlatformException
 
 logger = logging.getLogger(__name__)
+
+
+class ErrorResponse:
+    """标准化的错误响应格式"""
+
+    def __init__(self, code: str, message: str, details: Dict[str, Any] | None = None):
+        self.code = code
+        self.message = message
+        self.details = details or {}
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "code": self.code,
+            "message": self.message,
+            "details": self.details,
+        }
 
 
 class AppException(Exception):
