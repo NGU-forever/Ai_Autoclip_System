@@ -10,13 +10,12 @@ from src.config_manager import config_manager
 from src.qr_login.drivers import get_driver
 from src.qr_login.success_detector import LoginSuccessDetector
 from uploader.conf import settings
-from uploader.utils.base_social_media import set_init_script
-from uploader.utils.douyin_speed_routes import attach_douyin_speed_routes
 from uploader.utils.playwright_net import goto_with_retry, user_friendly_uploader_error, platform_label_for_error
 
 from ..models import PersistentSession, SessionStatus
 from ..events import status_emitter
 from ..pool import get_browser_pool
+from ..resource_guard import managed_browser_session
 
 logger = logging.getLogger(__name__)
 
@@ -39,74 +38,54 @@ class QRLoginFlow:
 
     @classmethod
     async def start_init_platform(cls, session: PersistentSession):
-        """异步启动平台初始化任务"""
+        """异步启动平台初始化任务（RAII 守护整个会话生命周期）"""
         try:
             platform = session.platform
             logger.info(f"Initializing {platform} browser for session {session.id}")
-            
-            # 1. 准备浏览器上下文
+
             url = cls.PLATFORM_URLS.get(platform)
             if not url:
                 raise ValueError(f"Unknown platform: {platform}")
-            
-            page = await cls._init_context_and_page(session, url)
-            
-            # 2. 获取 Driver 执行 DOM 操作
-            driver = get_driver(platform)
-            await driver.prepare_login_page(page)
-            
-            # 3. 捕获二维码
-            ok = await driver.capture_qr_code(page, session.qr_code_path)
-            png_ok = ok and os.path.exists(session.qr_code_path) and os.path.getsize(session.qr_code_path) >= 200
-            
-            if not png_ok:
-                session.status = SessionStatus.FAILED
-                session.error_msg = "二维码生成失败"
+
+            session._init_url = url
+            session._attach_speed_routes = (platform == "douyin")
+
+            async with managed_browser_session(session) as page:
+                await goto_with_retry(
+                    page, url, wait_until="domcontentloaded", timeout=60000,
+                    retries=3, delay_sec=2.5, log_label=f"{platform} session {session.id} init"
+                )
+
+                driver = get_driver(platform)
+                await driver.prepare_login_page(page)
+
+                ok = await driver.capture_qr_code(page, session.qr_code_path)
+                png_ok = ok and os.path.exists(session.qr_code_path) and os.path.getsize(session.qr_code_path) >= 200
+
+                if not png_ok:
+                    session.status = SessionStatus.FAILED
+                    session.error_msg = "二维码生成失败"
+                    session.qr_ready.set()
+                    await status_emitter.emit(session)
+                    return
+
+                session.status = SessionStatus.READY
                 session.qr_ready.set()
+                logger.info(f"{platform} QR code captured for session {session.id}")
                 await status_emitter.emit(session)
-                return
-            
-            # 4. 二维码就绪
-            session.status = SessionStatus.READY
-            session.qr_ready.set()
-            logger.info(f"{platform} QR code captured for session {session.id}")
-            await status_emitter.emit(session)
-            
-            # 5. 启动状态轮询
-            cls._attach_login_monitors(session)
-            # 注意：此处任务追踪应由 Manager 负责，Flow 只负责执行逻辑
-            asyncio.create_task(cls.poll_login_status(session, driver))
-            
+
+                cls._attach_login_monitors(session)
+                asyncio.create_task(cls.poll_login_status(session, driver))
+
+                # 保持上下文存活，直到 Manager 显式触发关闭
+                await session._shutdown_event.wait()
+
         except Exception as e:
             logger.error(f"Error during {platform} initialization: {e}")
             session.status = SessionStatus.FAILED
             session.error_msg = user_friendly_uploader_error(e, platform_label_for_error(platform))
             session.qr_ready.set()
             await status_emitter.emit(session)
-
-    @classmethod
-    async def _init_context_and_page(cls, session: PersistentSession, url: str) -> Page:
-        """从资源池获取 Context 和 Page 并加载目标 URL"""
-        pool = await get_browser_pool()
-        
-        # 保存初始化参数用于恢复
-        session._init_url = url
-        session._attach_speed_routes = (session.platform == "douyin")
-        
-        context = await pool.create_context()
-        context = await set_init_script(context)
-        if session._attach_speed_routes:
-            await attach_douyin_speed_routes(context)
-        
-        session.context = context
-        page = await context.new_page()
-        session.page = page
-        
-        await goto_with_retry(
-            page, url, wait_until="domcontentloaded", timeout=60000, 
-            retries=3, delay_sec=2.5, log_label=f"{session.platform} session {session.id} init"
-        )
-        return page
 
     @classmethod
     async def poll_login_status(cls, session: PersistentSession, driver) -> None:

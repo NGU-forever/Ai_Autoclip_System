@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import asyncio
+import contextlib
 import logging
 import os
 import time
@@ -101,28 +102,40 @@ class SessionManager:
             await self._close_session_internal(session_id)
 
     async def _close_session_internal(self, session_id: str):
-        """核心释放逻辑：停止任务、清理资源"""
+        """核心释放逻辑：停止任务、通过 RAII finally 清理资源，并附加 shield 兜底"""
         session = self.sessions.pop(session_id, None)
         if not session: return
-        
+
         logger.info(f"Closing persistent session {session_id}")
-        
-        # 1. 取消所有后台任务
+
+        # 1. 通知生命周期上下文管理器退出
+        session._shutdown_event.set()
+
+        # 2. 取消并等待后台任务结束，使 managed_browser_session 的 finally 执行
         for task in list(session._background_tasks):
             if not task.done():
                 task.cancel()
-        
-        # 2. 回收浏览器资源
+                try:
+                    await asyncio.wait_for(asyncio.shield(task), timeout=5.0)
+                except Exception:
+                    pass
+
+        # 3. shield 兜底：即使调用方被取消，也确保资源回收
+        async def _fallback_cleanup():
+            if session.page:
+                with contextlib.suppress(Exception):
+                    await session.page.close()
+            if session.context:
+                with contextlib.suppress(Exception):
+                    await session.context.close()
+            if session.qr_code_path and os.path.exists(session.qr_code_path):
+                with contextlib.suppress(Exception):
+                    os.remove(session.qr_code_path)
+
         try:
-            if session.page: await session.page.close()
-            if session.context: await session.context.close()
-        except Exception as e:
-            logger.debug(f"Error closing browser resources: {e}")
-        
-        # 3. 清理截图文件
-        if session.qr_code_path and os.path.exists(session.qr_code_path):
-            try: os.remove(session.qr_code_path)
-            except: pass
+            await asyncio.shield(_fallback_cleanup())
+        except asyncio.CancelledError:
+            raise
 
     def update_heartbeat(self, session_id: str) -> bool:
         """更新会话心跳状态"""
@@ -163,19 +176,27 @@ class SessionManager:
         session = self.sessions.get(session_id)
         if not session or not session._needs_recovery: return False
         if session.status in [SessionStatus.SUCCESS, SessionStatus.FAILED]: return False
-        
+
         logger.info(f"Attempting to recover session {session_id} ({session.platform})")
         try:
-            # 1. 清理旧资源
-            if session.page: await session.page.close()
-            if session.context: await session.context.close()
-            
-            # 2. 重新启动初始化流
+            # 1. 通知旧生命周期退出并等待其完全结束
+            session._shutdown_event.set()
+            for task in list(session._background_tasks):
+                if not task.done():
+                    task.cancel()
+                    try:
+                        await asyncio.wait_for(asyncio.shield(task), timeout=5.0)
+                    except Exception:
+                        pass
+
+            # 2. 重置状态并启动新的生命周期
             session.status = SessionStatus.INITIALIZING
             session.error_msg = None
             session.qr_ready.clear()
             session._needs_recovery = False
-            
+            session._shutdown_event = asyncio.Event()
+            session._login_monitors_attached = False
+
             self._track_task(session, QRLoginFlow.start_init_platform(session))
             return True
         except Exception as e:
