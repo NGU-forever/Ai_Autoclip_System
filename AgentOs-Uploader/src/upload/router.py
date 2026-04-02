@@ -34,7 +34,7 @@ from src.upload.schemas import (
 from src.upload.service import UploaderService, _resolve_publish_video_path
 from src.upload.websocket import ws_manager
 from uploader.qr_login_service import get_qr_login_service, LoginStatus
-from uploader.persistent_browser_service import (
+from src.browser import (
     get_persistent_browser_manager,
     SessionStatus,
 )
