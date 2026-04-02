@@ -7,7 +7,7 @@
 import json
 import uuid
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,11 +26,13 @@ class AccountRepository:
 
     async def create(
         self,
+        account_id: str,
         platform: str,
         account_name: str,
         cookie_file: str,
     ) -> Account:
         account = Account(
+            id=account_id,
             platform=platform,
             account_name=account_name,
             cookie_file=cookie_file,
@@ -39,11 +41,19 @@ class AccountRepository:
         await self._session.flush()
         return account
 
-    async def get_by_id(self, account_id: int) -> Optional[Account]:
+    async def get_by_id(self, account_id: str) -> Optional[Account]:
         result = await self._session.execute(
             select(Account).where(Account.id == account_id)
         )
         return result.scalar_one_or_none()
+
+    async def get_by_platform(self, platform: str) -> Optional[Account]:
+        result = await self._session.execute(
+            select(Account)
+            .where(Account.platform == platform, Account.is_active.is_(True))
+            .order_by(Account.created_at)
+        )
+        return result.scalars().first()
 
     async def list_by_platform(self, platform: str) -> List[Account]:
         result = await self._session.execute(
@@ -59,13 +69,38 @@ class AccountRepository:
         )
         return list(result.scalars().all())
 
-    async def deactivate(self, account_id: int) -> bool:
+    async def deactivate(self, account_id: str) -> bool:
         result = await self._session.execute(
             update(Account)
             .where(Account.id == account_id)
             .values(is_active=False)
         )
         return result.rowcount > 0
+
+    async def update_or_create_by_platform(
+        self,
+        platform: str,
+        account_name: str,
+        cookie_file: str,
+    ) -> Account:
+        """同一平台只保留一个活跃账号：更新现有或创建新账号。"""
+        existing = await self.get_by_platform(platform)
+        if existing:
+            existing.account_name = account_name
+            existing.cookie_file = cookie_file
+            existing.is_active = True
+            existing.updated_at = datetime.now()
+            await self._session.flush()
+            return existing
+        new_account = Account(
+            id=str(uuid.uuid4()),
+            platform=platform,
+            account_name=account_name,
+            cookie_file=cookie_file,
+        )
+        self._session.add(new_account)
+        await self._session.flush()
+        return new_account
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -79,21 +114,24 @@ class TaskRepository:
 
     async def create(
         self,
+        task_id: str,
         platform: str,
-        video_path: str,
+        video_id: str,
+        account_id: Optional[str] = None,
         title: Optional[str] = None,
         description: Optional[str] = None,
         tags: Optional[List[str]] = None,
-        account_id: Optional[int] = None,
+        request_data: Optional[Dict[str, Any]] = None,
     ) -> UploaderTask:
         task = UploaderTask(
-            id=str(uuid.uuid4()),
+            id=task_id,
             platform=platform,
             account_id=account_id,
-            video_path=video_path,
+            video_id=video_id,
             title=title,
             description=description,
             tags=json.dumps(tags or [], ensure_ascii=False),
+            request_data=json.dumps(request_data or {}, ensure_ascii=False),
             status="pending",
         )
         self._session.add(task)
@@ -124,7 +162,7 @@ class TaskRepository:
         result = await self._session.execute(
             update(UploaderTask)
             .where(UploaderTask.id == task_id)
-            .values(status="running", started_at=datetime.utcnow())
+            .values(status="running", started_at=datetime.now())
         )
         return result.rowcount > 0
 
@@ -132,7 +170,7 @@ class TaskRepository:
         result = await self._session.execute(
             update(UploaderTask)
             .where(UploaderTask.id == task_id)
-            .values(status="success", finished_at=datetime.utcnow())
+            .values(status="success", finished_at=datetime.now())
         )
         return result.rowcount > 0
 
@@ -143,7 +181,36 @@ class TaskRepository:
             .values(
                 status="failed",
                 error_msg=error_msg,
-                finished_at=datetime.utcnow(),
+                finished_at=datetime.now(),
+            )
+        )
+        return result.rowcount > 0
+
+    async def update_status(
+        self,
+        task_id: str,
+        status: str,
+        error_msg: Optional[str] = None,
+    ) -> bool:
+        values = {"status": status, "updated_at": datetime.now()}
+        if error_msg is not None:
+            values["error_msg"] = error_msg
+        if status == "running":
+            values["started_at"] = datetime.now()
+        if status in ("success", "failed"):
+            values["finished_at"] = datetime.now()
+        result = await self._session.execute(
+            update(UploaderTask).where(UploaderTask.id == task_id).values(**values)
+        )
+        return result.rowcount > 0
+
+    async def update_request_data(self, task_id: str, request_data: Dict[str, Any]) -> bool:
+        result = await self._session.execute(
+            update(UploaderTask)
+            .where(UploaderTask.id == task_id)
+            .values(
+                request_data=json.dumps(request_data, ensure_ascii=False),
+                updated_at=datetime.now(),
             )
         )
         return result.rowcount > 0
@@ -173,7 +240,7 @@ class TaskRepository:
             .values(
                 status="failed",
                 error_msg="服务重启，任务中断",
-                finished_at=datetime.utcnow(),
+                finished_at=datetime.now(),
             )
         )
         return result.rowcount
