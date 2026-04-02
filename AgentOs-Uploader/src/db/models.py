@@ -28,7 +28,7 @@ class Account(Base):
     """平台账号（替代 accounts.json）"""
     __tablename__ = "accounts"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(String(36), primary_key=True)
     platform = Column(String(32), nullable=False, index=True)   # douyin / tencent / xhs
     account_name = Column(String(128), nullable=False)
     cookie_file = Column(String(256), nullable=False)           # 相对 cookies 目录的文件名
@@ -56,11 +56,13 @@ class UploaderTask(Base):
 
     id = Column(String(36), primary_key=True)                   # UUID
     platform = Column(String(32), nullable=False, index=True)
-    account_id = Column(Integer, ForeignKey("accounts.id"), nullable=True, index=True)
-    video_path = Column(String(512), nullable=False)
+    account_id = Column(String(36), ForeignKey("accounts.id"), nullable=True, index=True)
+    video_id = Column(String(512), nullable=False)
+    video_path = Column(String(512), nullable=True)
     title = Column(String(256), nullable=True)
     description = Column(Text, nullable=True)
     tags = Column(Text, nullable=True)                          # JSON 字符串，例如 '["tag1","tag2"]'
+    request_data = Column(Text, nullable=True)                  # JSON 字符串，保存原始请求参数用于重试
 
     # 状态字段
     status = Column(String(32), nullable=False, default="pending", index=True)
@@ -83,10 +85,12 @@ class UploaderTask(Base):
             "id": self.id,
             "platform": self.platform,
             "account_id": self.account_id,
+            "video_id": self.video_id,
             "video_path": self.video_path,
             "title": self.title,
             "description": self.description,
             "tags": json.loads(self.tags) if self.tags else [],
+            "request_data": json.loads(self.request_data) if self.request_data else {},
             "status": self.status,
             "error_msg": self.error_msg,
             "retry_count": self.retry_count,
