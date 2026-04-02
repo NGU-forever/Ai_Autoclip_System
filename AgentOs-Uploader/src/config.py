@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     uploader_video_dir: str = "uploader/videos"
 
     # 浏览器会话配置（从环境变量读取，有默认值）
-    browser_heartbeat_timeout: int = 30  # 心跳超时（秒）
+    browser_heartbeat_timeout: int = 300  # 心跳超时（秒）
     browser_heartbeat_check_interval: int = 10  # 心跳检查间隔（秒）
     browser_qr_validity: int = 300  # 二维码有效期（秒）
     browser_qr_wait_timeout: int = 60  # 二维码等待超时（秒）
