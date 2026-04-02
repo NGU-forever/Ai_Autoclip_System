@@ -39,6 +39,7 @@ class PersistentSession:
     # 控制信号
     qr_ready: asyncio.Event = field(default_factory=asyncio.Event)
     _login_success_event: asyncio.Event = field(default_factory=asyncio.Event)
+    _shutdown_event: asyncio.Event = field(default_factory=asyncio.Event)
     
     # 状态控制
     _background_tasks: set = field(default_factory=set)
