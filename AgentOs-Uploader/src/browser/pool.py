@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 import asyncio
+import atexit
 import logging
+import os
+import weakref
 from typing import Optional
 from playwright.async_api import async_playwright, Browser, BrowserContext, Playwright
 
@@ -39,16 +42,17 @@ class BrowserPool:
         async with self._browser_lock:
             if self._browser is not None and self._browser.is_connected():
                 return self._browser
-            
+
             # 启动 Playwright 和 Browser
             if self._playwright is None:
                 self._playwright = await async_playwright().start()
-            
+
             launch_options = merge_chromium_launch_options({"headless": True})
             if LOCAL_CHROME_PATH:
                 launch_options["executable_path"] = LOCAL_CHROME_PATH
-            
+
             self._browser = await self._playwright.chromium.launch(**launch_options)
+            self._register_process_fallback()
             logger.info("Global browser instance started (pooling mode)")
             return self._browser
 
@@ -70,6 +74,38 @@ class BrowserPool:
         context = await browser.new_context(**default_options)
         return context
 
+    def _register_process_fallback(self):
+        """注册 atexit / weakref.finalize 兜底，用于 SIGKILL 等极端场景"""
+        if getattr(self, "_fallback_registered", False):
+            return
+        self._fallback_registered = True
+
+        def _kill_orphans():
+            browser = self._browser
+            # 尝试直接终止 Playwright 内部的 browser 进程
+            if browser and hasattr(browser, "_impl_obj") and browser._impl_obj:
+                proc = getattr(browser._impl_obj, "_proc", None)
+                if proc and proc.poll() is None:
+                    try:
+                        proc.kill()
+                        logger.warning("atexit: killed orphaned browser process via _proc")
+                    except Exception:
+                        pass
+            # 尝试通过 psutil 递归清理 chrome/chromium 子进程
+            try:
+                import psutil
+                current = psutil.Process()
+                for child in current.children(recursive=True):
+                    name = child.name().lower()
+                    if any(k in name for k in ("chrome", "chromium")):
+                        child.kill()
+                        logger.warning(f"atexit: killed orphaned chrome child pid={child.pid}")
+            except Exception:
+                pass
+
+        atexit.register(_kill_orphans)
+        weakref.finalize(self, _kill_orphans)
+
     async def shutdown(self):
         """完全关闭浏览器池及所有资源"""
         async with self._browser_lock:
@@ -80,7 +116,7 @@ class BrowserPool:
                 except Exception as e:
                     logger.debug(f"Error closing global browser: {e}")
                 self._browser = None
-            
+
             if self._playwright:
                 try:
                     await self._playwright.stop()
