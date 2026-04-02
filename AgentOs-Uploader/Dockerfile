@@ -2,8 +2,6 @@ FROM pzm2mntd3t74vneyhy.xuanyuan.run/node:20.19.4-alpine AS web-builder
 
 # 加速 Node 阶段依赖下载（腾讯云 npm 镜像）
 ENV NPM_CONFIG_REGISTRY=https://mirrors.cloud.tencent.com/npm/ \
-    PIP_INDEX_URL=https://mirrors.cloud.tencent.com/pypi/simple/ \
-    PIP_TRUSTED_HOST=mirrors.cloud.tencent.com \
     GOPROXY=https://goproxy.cn,direct \
     YARN_REGISTRY=https://mirrors.cloud.tencent.com/npm/ \
     HF_ENDPOINT=https://hf-mirror.com
@@ -16,7 +14,9 @@ RUN npm run build
 
 FROM pzm2mntd3t74vneyhy.xuanyuan.run/python:3.11-slim
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
+ENV PIP_INDEX_URL=https://mirrors.cloud.tencent.com/pypi/simple/ \
+    PIP_TRUSTED_HOST=mirrors.cloud.tencent.com \
+    PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app:/app/uploader
 
