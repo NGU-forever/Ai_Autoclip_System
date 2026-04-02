@@ -3,7 +3,7 @@ import asyncio
 import logging
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Callable, List, Any
 
 from playwright.async_api import Page, Frame
 from src.config_manager import config_manager
@@ -28,6 +28,8 @@ class QRLoginFlow:
     - 处理自动刷新和恢复逻辑。
     - 状态变更时触发事件。
     """
+
+    _login_success_handlers: List[Callable[[PersistentSession], Any]] = []
     
     PLATFORM_URLS = {
         "douyin": "https://creator.douyin.com/",
@@ -176,8 +178,14 @@ class QRLoginFlow:
             await status_emitter.emit(session)
 
     @classmethod
+    def register_login_success_handler(cls, callback: Callable[[PersistentSession], Any]) -> None:
+        """注册登录成功后的回调处理器"""
+        if callback not in cls._login_success_handlers:
+            cls._login_success_handlers.append(callback)
+
+    @classmethod
     async def handle_login_success(cls, session: PersistentSession):
-        """处理登录成功：保存 Cookie 并注册账号"""
+        """处理登录成功：保存 Cookie 并调用已注册的账号注册处理器"""
         try:
             # 保存 Cookie
             cookie_file = f"persistent_{session.id}.json"
@@ -190,18 +198,16 @@ class QRLoginFlow:
             session.status = SessionStatus.SUCCESS
             session._login_success_event.set()
             
-            # 自动化注册到系统
-            try:
-                from src.upload.service import UploaderService
-                UploaderService().update_account_cookie(
-                    platform=session.platform,
-                    user_name=session.user_name,
-                    cookie_filename=session.cookie_file,
-                )
-                logger.info(f"Successfully registered account {session.user_name}")
-            except Exception as e:
-                logger.error(f"Failed to auto-register account: {e}")
-                
+            # 调用已注册的处理器
+            for handler in cls._login_success_handlers:
+                try:
+                    result = handler(session)
+                    if asyncio.iscoroutine(result):
+                        await result
+                except Exception as e:
+                    logger.error(f"Login success handler failed: {e}")
+            
+            logger.info(f"Successfully handled login for account {session.user_name}")
             await status_emitter.emit(session)
             
         except Exception as e:
