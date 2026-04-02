@@ -32,25 +32,7 @@
   --topbar-h: 64px;
 }
 
-/* Dark mode overrides (if user prefers dark scheme) */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0b0b0c;
-    --text: #f4f4f5;
-    --muted: rgba(244,244,245,0.60);
-
-    --surface: rgba(20,20,22,0.92);
-    --surface-2: rgba(255,255,255,0.07);
-
-    --border: rgba(244,244,245,0.16);
-    --border-weak: rgba(244,244,245,0.10);
-
-    --shadow-soft: 0 14px 36px rgba(0,0,0,0.38);
-    --shadow: 0 24px 70px rgba(0,0,0,0.58);
-
-    --ring: 0 0 0 3px rgba(116, 103, 239, 0.20);
-  }
-}
+/* 主题颜色由 ThemeContext 统一管理，不再自动跟随系统暗色模式 */
 
 @theme {
   --color-primary: var(--primary);
