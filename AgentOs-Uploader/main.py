@@ -2,8 +2,10 @@
 Uploader 独立进程入口（Docker 容器内 uvicorn 加载 `uploader.main:app`）。
 """
 
+import asyncio
 import logging
 import os
+import signal
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -18,6 +20,7 @@ from starlette.responses import FileResponse, JSONResponse
 from src.config import settings
 from src.exceptions import AppException, app_exception_handler, global_exception_handler
 from src.upload.router import router as uploader_router
+from src.browser import shutdown_browser_service
 
 logging.basicConfig(
     level=logging.INFO,
@@ -42,6 +45,26 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting uploader service...")
+
+    loop = asyncio.get_running_loop()
+    shutdown_event = asyncio.Event()
+
+    def _on_signal(sig):
+        logger.info(f"Received signal {sig}, triggering graceful shutdown...")
+        shutdown_event.set()
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, _on_signal, sig)
+
+    async def _watch_shutdown():
+        await shutdown_event.wait()
+        logger.info("Graceful shutdown: cleaning up browser service...")
+        try:
+            await asyncio.wait_for(shutdown_browser_service(), timeout=15.0)
+        except Exception as exc:
+            logger.error(f"Error during graceful shutdown: {exc}")
+
+    shutdown_task = asyncio.create_task(_watch_shutdown())
 
     # 注册浏览器核心事件到上传服务层（解耦：browser 包不再直接依赖 upload 包）
     from src.browser.events import status_emitter
@@ -108,6 +131,15 @@ async def lifespan(app: FastAPI):
 
     yield
     logger.info("Shutting down uploader service...")
+    shutdown_event.set()
+    if not shutdown_task.done():
+        try:
+            await asyncio.wait_for(shutdown_task, timeout=15.0)
+        except asyncio.TimeoutError:
+            logger.warning("Shutdown cleanup timed out")
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.remove_signal_handler(sig)
 
 
 # ─── 目录确保 ─────────────────────────────────────────────────────────────────
