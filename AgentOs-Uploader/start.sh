@@ -244,7 +244,7 @@ init_database() {
     export DATABASE_URL="postgresql://uploader:uploader@localhost:${POSTGRES_PORT}/uploader"
     export REDIS_URL="redis://localhost:${REDIS_PORT}/0"
     export STORAGE_ROOT="$PROJECT_ROOT/storage"
-    export PYTHONPATH="$PROJECT_ROOT"
+    export PYTHONPATH="$PROJECT_ROOT:$PROJECT_ROOT/uploader"
     
     cd "$PROJECT_ROOT"
     
@@ -318,10 +318,10 @@ start_uploader() {
     export DATABASE_URL="postgresql://uploader:uploader@localhost:${POSTGRES_PORT}/uploader"
     export REDIS_URL="redis://localhost:${REDIS_PORT}/0"
     export STORAGE_ROOT="$PROJECT_ROOT/storage"
-    export PYTHONPATH="$PROJECT_ROOT"
+    export PYTHONPATH="$PROJECT_ROOT:$PROJECT_ROOT/uploader"
     export SECRET_KEY="${SECRET_KEY:-local-dev-secret-key}"
     
-    cd "$PROJECT_ROOT/src"
+    cd "$PROJECT_ROOT"
     
     local cmd="python3 -m uvicorn main:app --host $host --port $port"
     if [ "$reload" = true ]; then
