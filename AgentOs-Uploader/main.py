@@ -198,6 +198,9 @@ def _static_dist_dir() -> Path:
 _STATIC_ROOT = _static_dist_dir()
 
 if _STATIC_ROOT.is_dir():
+    # 挂载 /uploader-ui/ 前缀，支持独立运行时直接访问 /uploader-ui/
+    app.mount("/uploader-ui", StaticFiles(directory=str(_STATIC_ROOT), html=True), name="spa_prefixed")
+
     # 挂载 /assets 静态资源（支持浏览器长缓存）
     assets_dir = _STATIC_ROOT / "assets"
     if assets_dir.is_dir():
