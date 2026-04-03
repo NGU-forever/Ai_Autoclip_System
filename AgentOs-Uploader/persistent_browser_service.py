@@ -21,6 +21,7 @@ from typing import Dict, List, Optional, Tuple
 
 from playwright.async_api import async_playwright, Browser, BrowserContext, Frame, Page, Playwright
 
+from src.config import settings
 from src.config_manager import config_manager
 from uploader.conf import LOCAL_CHROME_PATH
 from src.qr_login.drivers import get_driver
