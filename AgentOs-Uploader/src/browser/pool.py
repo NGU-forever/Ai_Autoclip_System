@@ -9,7 +9,7 @@ from playwright.async_api import async_playwright, Browser, BrowserContext, Play
 
 from src.config_manager import config_manager
 from uploader.conf import LOCAL_CHROME_PATH
-from uploader.utils.playwright_net import merge_chromium_launch_options
+from src.utils.playwright_net import merge_chromium_launch_options
 
 logger = logging.getLogger(__name__)
 

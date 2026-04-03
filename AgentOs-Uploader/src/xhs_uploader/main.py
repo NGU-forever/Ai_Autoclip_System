@@ -6,8 +6,8 @@ import os
 import asyncio
 
 from uploader.conf import LOCAL_CHROME_PATH, LOCAL_CHROME_HEADLESS
-from uploader.utils.base_social_media import set_init_script
-from uploader.utils.log import xiaohongshu_logger
+from src.utils.base_social_media import set_init_script
+from src.utils.log import xiaohongshu_logger
 from src.selectors import XHS_SELECTORS
 
 
