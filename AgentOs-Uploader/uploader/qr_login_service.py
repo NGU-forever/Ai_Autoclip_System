@@ -5,11 +5,11 @@
 
 注意：此文件已重构为向后兼容的包装器。
 实际实现已移动到 src/qr_login/ 目录下的模块中：
-- src/qr_login/models.py    - 模型定义
-- src/qr_login/base.py      - 基础类和共享工具
-- src/qr_login/douyin.py    - 抖音登录实现
-- src/qr_login/tencent.py   - 视频号登录实现
-- src/qr_login/xhs.py       - 小红书登录实现
+- src/qr_login/models.py            - 模型定义
+- src/qr_login/drivers/base.py      - 基础类和共享工具
+- src/qr_login/drivers/douyin.py    - 抖音登录实现
+- src/qr_login/drivers/tencent.py   - 视频号登录实现
+- src/qr_login/drivers/xhs.py       - 小红书登录实现
 - src/qr_login/__init__.py  - 主服务和导出
 """
 
