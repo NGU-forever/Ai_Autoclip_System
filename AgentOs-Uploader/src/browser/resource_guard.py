@@ -37,8 +37,8 @@ async def managed_browser_session(session: PersistentSession):
     Yields:
         Page: 已初始化的 Playwright Page 实例。
     """
-    from uploader.utils.base_social_media import set_init_script
-    from uploader.utils.douyin_speed_routes import attach_douyin_speed_routes
+    from src.utils.base_social_media import set_init_script
+    from src.utils.douyin_speed_routes import attach_douyin_speed_routes
 
     pool = await get_browser_pool()
     context: Optional[BrowserContext] = None

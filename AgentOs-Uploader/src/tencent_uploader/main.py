@@ -7,8 +7,8 @@ import os
 import asyncio
 
 from uploader.conf import LOCAL_CHROME_PATH, LOCAL_CHROME_HEADLESS, COOKIES_DIR
-from uploader.utils.base_social_media import set_init_script
-from uploader.utils.log import tencent_logger
+from src.utils.base_social_media import set_init_script
+from src.utils.log import tencent_logger
 
 
 def format_str_for_short_title(origin_title: str) -> str:

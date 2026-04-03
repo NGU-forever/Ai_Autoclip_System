@@ -14,15 +14,15 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from src.config_manager import config_manager
-from uploader.utils.playwright_net import (
+from src.utils.playwright_net import (
     merge_chromium_launch_options,
     goto_with_retry,
     user_friendly_uploader_error,
     platform_label_for_error,
 )
 from uploader.conf import LOCAL_CHROME_PATH
-from uploader.utils.base_social_media import set_init_script
-from uploader.utils.douyin_speed_routes import attach_douyin_speed_routes
+from src.utils.base_social_media import set_init_script
+from src.utils.douyin_speed_routes import attach_douyin_speed_routes
 from playwright.async_api import async_playwright
 
 from .models import LoginStatus, LoginTask

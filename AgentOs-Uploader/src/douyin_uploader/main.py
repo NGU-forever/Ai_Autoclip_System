@@ -6,8 +6,8 @@ import os
 import asyncio
 
 from uploader.conf import LOCAL_CHROME_PATH, LOCAL_CHROME_HEADLESS
-from uploader.utils.base_social_media import set_init_script
-from uploader.utils.log import douyin_logger
+from src.utils.base_social_media import set_init_script
+from src.utils.log import douyin_logger
 
 
 async def cookie_auth(account_file):
