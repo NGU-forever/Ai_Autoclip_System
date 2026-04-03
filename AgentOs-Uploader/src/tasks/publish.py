@@ -8,6 +8,7 @@
 - 业务逻辑完全委托给 UploaderService.execute_publish_task，无重复代码
 """
 
+import asyncio
 import logging
 
 from src.tasks.celery_app import celery_app
@@ -51,24 +52,26 @@ def publish_video_task(
         task_id, platform, self.request.id,
     )
     service = UploaderService()
-    # 直接复用现有业务逻辑，无需任何改动
-    service.execute_publish_task(
-        task_id=task_id,
-        platform=platform,
-        account_id=account_id,
-        video_id=video_id,
-        title=title,
-        tags=tags,
-        category=category,
-        is_draft=is_draft,
-        thumbnail_path=thumbnail_path,
-        product_link=product_link,
-        product_title=product_title,
-        desc=desc,
-        cover_path=cover_path,
-        is_private=is_private,
-        publish_date=publish_date,
-        short_title=short_title,
-        declare_original=declare_original,
+    # 异步执行发布逻辑（Celery --pool=solo 模式下需通过 asyncio.run 驱动）
+    asyncio.run(
+        service.execute_publish_task(
+            task_id=task_id,
+            platform=platform,
+            account_id=account_id,
+            video_id=video_id,
+            title=title,
+            tags=tags,
+            category=category,
+            is_draft=is_draft,
+            thumbnail_path=thumbnail_path,
+            product_link=product_link,
+            product_title=product_title,
+            desc=desc,
+            cover_path=cover_path,
+            is_private=is_private,
+            publish_date=publish_date,
+            short_title=short_title,
+            declare_original=declare_original,
+        )
     )
     logger.info("Celery Worker 完成发布任务: task_id=%s", task_id)
