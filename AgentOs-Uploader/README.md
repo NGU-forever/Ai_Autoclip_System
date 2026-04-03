@@ -42,9 +42,8 @@ AgentOS Uploader 是一个功能完整的视频自动上传平台，专为需要
 #### 1. 系统要求
 
 - Python 3.8+
-- PostgreSQL 12+
-- Redis 6+
-- Chrome 浏览器（或 Chromium）
+- Docker (用于启动 PostgreSQL 和 Redis)
+- Chrome 浏览器（或 Chromium，用于 Playwright）
 
 #### 2. 安装依赖
 
@@ -71,7 +70,7 @@ playwright install chromium
 # 复制环境变量模板
 cp .env.example .env
 
-# 编辑环境变量
+# 编辑环境变量（至少修改 SECRET_KEY）
 nano .env
 ```
 
@@ -79,10 +78,10 @@ nano .env
 
 | 变量名 | 描述 | 默认值 | 必填 |
 |--------|------|--------|------|
-| `DATABASE_URL` | PostgreSQL数据库连接URL | `postgresql://uploader:uploader@localhost:5432/uploader` | ✅ |
-| `REDIS_URL` | Redis缓存连接URL | `redis://localhost:6379/0` | ✅ |
+| `DATABASE_URL` | PostgreSQL数据库连接URL | `postgresql://uploader:uploader@localhost:5433/uploader` | ✅ |
+| `REDIS_URL` | Redis缓存连接URL | `redis://localhost:6380/0` | ✅ |
 | `SECRET_KEY` | JWT加密密钥（生产环境请使用强密钥） | - | ✅ |
-| `STORAGE_ROOT` | 存储根目录，用于保存视频、Cookie等文件 | `/app/storage` | ✅ |
+| `STORAGE_ROOT` | 存储根目录，用于保存视频、Cookie等文件 | `./storage` | ✅ |
 | `UPLOADER_HEADLESS` | 是否使用无头模式（生产环境建议开启） | `false` | ❌ |
 | `UPLOADER_CHROME_PATH` | Chrome浏览器路径 | `""` | ❌ |
 | `BROWSER_HEARTBEAT_TIMEOUT` | 浏览器心跳超时（秒） | `300` | ❌ |
@@ -91,12 +90,96 @@ nano .env
 
 ### 启动服务
 
-```bash
-# 启动FastAPI服务
-uvicorn src.main:app --reload --port 8002
+#### 方式一：使用启动脚本（推荐本地开发）
 
-# 或使用Docker Compose（推荐生产环境）
-docker-compose up -d
+我们提供了两个启动脚本，**无需编写 YML 配置文件**，一键启动所有服务：
+
+**Shell 脚本（推荐 Linux/Mac）：**
+
+```bash
+# 一键启动所有服务（自动启动 PostgreSQL、Redis、Uploader）
+./start.sh
+
+# 查看服务状态
+./start.sh --status
+
+# 同时启动 Celery Worker
+./start.sh --worker
+
+# 查看所有选项
+./start.sh --help
+```
+
+**Python 脚本（推荐 Windows 或更熟悉 Python）：**
+
+```bash
+# 功能与 start.sh 完全一致
+python start.py
+
+# 查看所有选项
+python start.py --help
+```
+
+**脚本特点：**
+- 🐳 自动使用 Docker 启动 PostgreSQL 和 Redis
+- 📦 自动初始化数据库表结构
+- 📁 自动创建存储目录
+- 🔄 支持热重载（代码修改自动生效）
+- ⚙️ 可选启动 Celery Worker 处理异步任务
+
+**常用命令：**
+
+```bash
+# 启动所有服务
+./start.sh        # 或: python start.py
+
+# 停止所有服务（包括 PostgreSQL 和 Redis）
+./start.sh --stop
+
+# 仅初始化数据库
+./start.sh --init
+
+# 重启依赖服务
+./start.sh --restart-deps
+
+# 删除依赖容器（会丢失数据！）
+./start.sh --remove-deps
+```
+
+#### 方式二：手动启动
+
+如果你希望手动控制每个步骤：
+
+```bash
+# 1. 启动 PostgreSQL (Docker)
+docker run -d --name uploader-postgres-local \
+  -e POSTGRES_USER=uploader \
+  -e POSTGRES_PASSWORD=uploader \
+  -e POSTGRES_DB=uploader \
+  -p 5433:5432 \
+  -v $(pwd)/.data/postgres:/var/lib/postgresql/data \
+  pgvector/pgvector:pg15-trixie
+
+# 2. 启动 Redis (Docker)
+docker run -d --name uploader-redis-local \
+  -p 6380:6379 \
+  redis:7-alpine
+
+# 3. 初始化存储目录
+mkdir -p storage/{raw,intermediate,exports,openstoryline,uploader/cookies,uploader/videos}
+
+# 4. 启动 Uploader 服务
+uvicorn src.main:app --reload --port 8002
+```
+
+#### 方式三：使用项目级 Docker Compose
+
+如果你已经启动了项目的整体 Docker Compose：
+
+```bash
+# 在项目根目录
+cd ..
+docker-compose up -d uploader
 ```
 
 服务启动后，你可以通过 `http://localhost:8002/docs` 访问API文档，通过 `http://localhost:8002/redoc` 访问Redoc文档。
@@ -110,6 +193,7 @@ AgentOs-Uploader/
 │   │   ├── service.py      # 业务逻辑层
 │   │   ├── router.py       # API路由定义
 │   │   └── schemas.py      # 数据模型定义
+│   ├── config.py           # Pydantic 配置类
 │   ├── config_manager.py   # 统一配置管理
 │   ├── exception_handler.py # 异常处理体系
 │   ├── douyin_uploader/    # 抖音平台适配器
@@ -117,12 +201,23 @@ AgentOs-Uploader/
 │   └── xhs_uploader/      # 小红书平台适配器
 ├── persistent_browser_service.py # 浏览器会话管理
 ├── qr_login_service.py     # 二维码登录服务
+├── start.sh               # 🚀 本地启动脚本（推荐）
+├── config.py              # 配置管理工具
 ├── requirements.txt       # Python依赖包
 ├── requirements-dev.txt   # 开发依赖包
 ├── Dockerfile             # Docker构建配置
-├── docker-compose.yml     # Docker Compose配置
-└── .env.example           # 环境变量模板
+├── .env.example           # 环境变量模板
+└── .dockerignore          # Docker构建忽略文件
 ```
+
+**核心配置文件说明：**
+
+| 文件 | 说明 |
+|------|------|
+| `start.sh` | 本地一键启动脚本，自动管理 PostgreSQL、Redis 和 Uploader 服务 |
+| `config.py` | 配置管理工具，支持查看、验证和生成配置文件 |
+| `.env.example` | 环境变量模板，复制为 `.env` 后修改即可使用 |
+| `src/config.py` | Pydantic Settings 配置类，定义所有配置项和默认值 |
 
 ## 🛠️ 使用指南
 
