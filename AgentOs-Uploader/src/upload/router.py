@@ -56,15 +56,20 @@ async def get_current_user(
     x_user_role: Optional[str] = Header(None, alias="X-User-Role"),
 ):
     """从请求头获取当前用户（由 backend 转发时添加）"""
-    if not x_user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="未提供用户认证信息"
-        )
-    return {
-        "id": x_user_id,
-        "role": x_user_role or "user"
-    }
+    if x_user_id:
+        return {
+            "id": x_user_id,
+            "role": x_user_role or "user"
+        }
+    
+    # 启用独立模式时提供默认 admin 用户
+    if settings.uploader_independent:
+        return {"id": "admin", "role": "admin"}
+        
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="未提供用户认证信息"
+    )
 
 
 async def get_current_user_optional(
@@ -77,6 +82,10 @@ async def get_current_user_optional(
     if x_user_id:
         return {"id": x_user_id, "role": x_user_role or "user"}
     
+    # 独立运行模式
+    if settings.uploader_independent:
+        return {"id": "admin", "role": "admin"}
+
     # 如果没有 header，说明可能是直接访问，拒绝请求
     # 注意：视频流现在也应该通过 backend 代理
     raise HTTPException(
@@ -92,7 +101,7 @@ async def list_accounts(
     service: UploaderService = Depends(get_uploader_service),
 ):
     """获取已配置的发布账号列表"""
-    return service.list_accounts()
+    return await service.list_accounts()
 
 
 @router.post("/accounts", response_model=AccountResponse)
@@ -119,7 +128,7 @@ async def add_account(
     with open(dest, "wb") as f:
         f.write(content)
 
-    return service.add_account(
+    return await service.add_account(
         platform=platform,
         user_name=user_name,
         cookie_filename=cookie_filename,
@@ -133,7 +142,7 @@ async def delete_account(
     service: UploaderService = Depends(get_uploader_service),
 ):
     """删除账号"""
-    service.delete_account(account_id)
+    await service.delete_account(account_id)
     return {"success": True}
 
 
@@ -218,7 +227,7 @@ async def get_qr_login_status(
     
     # 如果登录成功：更新或创建账号（同一平台只保留一个账号）
     if task.status == LoginStatus.SUCCESS and task.cookie_file:
-        response.account = service.update_account_cookie(
+        response.account = await service.update_account_cookie(
             platform=task.platform,
             user_name=task.user_name or f"{task.platform}_{task.id[:8]}",
             cookie_filename=task.cookie_file,
@@ -320,8 +329,7 @@ async def publish(
     任务由独立的 Celery Worker 容器执行，API 容器重启不影响任务执行。
     """
     try:
-        cookie_ok = await run_in_threadpool(
-            service.check_cookie_valid,
+        cookie_ok = await service.check_cookie_valid(
             req.platform,
             req.account_id,
         )
@@ -329,7 +337,7 @@ async def publish(
         raise
     if not cookie_ok:
         try:
-            await run_in_threadpool(service.set_account_status, req.account_id, 0)
+            await service.set_account_status(req.account_id, 0)
         except NotFoundException:
             pass
         raise HTTPException(
@@ -355,7 +363,7 @@ async def publish(
         "update_time": datetime.now().isoformat(),
         "request_data": req.model_dump()
     }
-    service.create_publish_task(task_data)
+    await service.create_publish_task(task_data)
 
     # 使用 Celery 持久化任务队列替代 FastAPI.BackgroundTasks
     # .delay() 将任务异步投递到 Redis Broker，由 uploader-worker 容器负责执行
@@ -391,7 +399,7 @@ async def list_publish_tasks(
     service: UploaderService = Depends(get_uploader_service),
 ):
     """获取发布任务列表"""
-    tasks = service.list_publish_tasks()
+    tasks = await service.list_publish_tasks()
     return PublishTaskListResponse(items=tasks, total=len(tasks))
 
 
@@ -402,7 +410,7 @@ async def get_publish_task(
     service: UploaderService = Depends(get_uploader_service),
 ):
     """查询发布任务详情"""
-    task = service.get_publish_task(task_id)
+    task = await service.get_publish_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
     return PublishTaskItem(**task)
@@ -415,7 +423,7 @@ async def retry_publish_task(
     service: UploaderService = Depends(get_uploader_service),
 ):
     """重试失败的发布任务（重新投递到 Celery 持久化队列）"""
-    task = service.get_publish_task(task_id)
+    task = await service.get_publish_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
 
@@ -427,8 +435,7 @@ async def retry_publish_task(
     req = PublishRequest(**req_data)
 
     try:
-        cookie_ok = await run_in_threadpool(
-            service.check_cookie_valid,
+        cookie_ok = await service.check_cookie_valid(
             req.platform,
             req.account_id,
         )
@@ -436,7 +443,7 @@ async def retry_publish_task(
         raise
     if not cookie_ok:
         try:
-            await run_in_threadpool(service.set_account_status, req.account_id, 0)
+            await service.set_account_status(req.account_id, 0)
         except NotFoundException:
             pass
         raise HTTPException(
@@ -450,7 +457,7 @@ async def retry_publish_task(
 
     # 重置任务状态为 pending，重新投递到 Celery 持久化队列
     from datetime import datetime
-    service.update_publish_task_status(task_id, "pending")
+    await service.update_publish_task_status(task_id, "pending")
 
     publish_video_task.delay(
         task_id=task_id,
@@ -495,28 +502,40 @@ async def init_persistent_session(
     初始化持久化扫码登录会话。
     后台会启动浏览器实例并保持运行，直到心跳超时或手动关闭。
     """
+    logger.info(f"Init persistent session for platform: {platform}")
     if platform not in ["douyin", "tencent", "xhs"]:
         raise HTTPException(status_code=400, detail="不支持的平台，仅支持 douyin、tencent 或 xhs")
     
+    logger.info("Getting persistent browser manager...")
     manager = await get_persistent_browser_manager()
+    logger.info(f"Creating session for {platform}...")
     session = await manager.create_session(platform)
     
+    logger.info(f"Waiting for QR ready for session {session.id} (timeout 60s)...")
     # 等待二维码生成（最多60秒）
     try:
         await asyncio.wait_for(session.qr_ready.wait(), timeout=60)
     except asyncio.TimeoutError:
+        logger.error(f"QR generation timeout for session {session.id}")
         raise HTTPException(status_code=500, detail="二维码生成超时")
+    except Exception as e:
+        logger.exception(f"Error waiting for QR: {e}")
+        raise HTTPException(status_code=500, detail=f"等待二维码时发生底层错误: {str(e)}")
     
+    logger.info(f"QR ready for session {session.id}, status: {session.status}")
     if session.status == SessionStatus.FAILED:
+        logger.error(f"Session {session.id} failed: {session.error_msg}")
         raise HTTPException(status_code=500, detail=session.error_msg or "初始化失败")
     
-    return PersistentSessionInitResponse(
+    resp = PersistentSessionInitResponse(
         sessionId=session.id,
         platform=platform,
         status=session.status.value,
         qrUrl=f"/api/admin/uploader/accounts/qr-persistent/{session.id}/qr-code",
         message="请使用抖音/微信/小红书扫码登录",
     )
+    logger.info(f"Returning response for session {session.id}")
+    return resp
 
 
 @router.post("/accounts/qr-persistent/{session_id}/heartbeat", response_model=PersistentSessionActionResponse)
@@ -644,7 +663,7 @@ async def get_persistent_session_status(
     # 如果登录成功：更新或创建账号（同一平台只保留一个账号）
     if session.status == SessionStatus.SUCCESS and session.cookie_file:
         # 使用 update_account_cookie 来更新现有账号或创建新账号
-        response.account = service.update_account_cookie(
+        response.account = await service.update_account_cookie(
             platform=session.platform,
             user_name=session.user_name or f"{session.platform}_{session.id[:8]}",
             cookie_filename=session.cookie_file,
