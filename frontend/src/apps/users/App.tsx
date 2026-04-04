@@ -74,7 +74,15 @@ const UserLogin: React.FC = () => {
       if (nextRaw) {
         try {
           const base = nextRaw.split('#')[0];
-          new URL(base);
+          // 改用更宽松的URL验证，支持0.0.0.0等特殊地址
+          if (!base.startsWith('http://') && !base.startsWith('https://')) {
+            // 特殊处理0.0.0.0和localhost
+            if (base.startsWith('0.0.0.0:') || base.startsWith('127.0.0.1:') || base.startsWith('localhost:')) {
+              base = `http://${base}`;
+            } else {
+              throw new Error('Invalid URL scheme');
+            }
+          }
           window.location.replace(
             `${base}#access_token=${encodeURIComponent(data.accessToken)}`,
           );

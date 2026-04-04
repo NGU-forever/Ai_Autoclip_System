@@ -68,6 +68,10 @@ async def health_check():
 
 app.mount("/storage/exports", StaticFiles(directory=settings.exports_path), name="storage-exports")
 
+# 注册路由
 from src.auth.router import router as auth_router
+from src.uploader_proxy import router as uploader_proxy_router
 
 app.include_router(auth_router, prefix="/api/admin")
+# Uploader 代理路由 - 所有 /api/admin/uploader/* 请求由 backend 统一认证后转发
+app.include_router(uploader_proxy_router, prefix="/api/admin")
