@@ -21,7 +21,7 @@ from src.utils.playwright_net import (
     user_friendly_uploader_error,
     platform_label_for_error,
 )
-from uploader.conf import LOCAL_CHROME_PATH
+from src.config import settings
 from src.utils.base_social_media import set_init_script
 from src.utils.douyin_speed_routes import attach_douyin_speed_routes
 from playwright.async_api import async_playwright
@@ -98,8 +98,8 @@ class QRLoginService:
             # 1. 启动浏览器 (一键式任务不走池化，保持完全独立以保兼容)
             playwright = await async_playwright().start()
             launch_options = merge_chromium_launch_options({"headless": True})
-            if LOCAL_CHROME_PATH:
-                launch_options["executable_path"] = LOCAL_CHROME_PATH
+            if settings.uploader_chrome_path:
+                launch_options["executable_path"] = settings.uploader_chrome_path
             
             browser = await playwright.chromium.launch(**launch_options)
             context = await browser.new_context(

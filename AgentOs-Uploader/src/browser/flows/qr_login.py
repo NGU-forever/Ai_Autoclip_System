@@ -9,7 +9,7 @@ from playwright.async_api import Page, Frame
 from src.config_manager import config_manager
 from src.qr_login.drivers import get_driver
 from src.qr_login.success_detector import LoginSuccessDetector
-from uploader.conf import settings
+from src.config import settings
 from src.utils.playwright_net import goto_with_retry, user_friendly_uploader_error, platform_label_for_error
 
 from ..models import PersistentSession, SessionStatus
