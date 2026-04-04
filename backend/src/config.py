@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     uploader_headless: bool = False
     uploader_cookies_dir: str = "uploader/cookies"
     uploader_video_dir: str = "uploader/videos"
+    
+    # Uploader 服务内部地址（backend 代理用）
+    uploader_internal_url: str = "http://uploader:8002"
 
     @property
     def uploader_cookies_path(self) -> str:
