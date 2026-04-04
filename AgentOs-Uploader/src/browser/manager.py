@@ -9,7 +9,7 @@ from typing import Dict, List, Optional, Tuple
 from pathlib import Path
 
 from src.config_manager import config_manager
-from uploader.conf import settings
+from src.config import settings
 
 from .models import PersistentSession, SessionStatus
 from .pool import get_browser_pool
