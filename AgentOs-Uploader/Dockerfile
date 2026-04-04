@@ -46,10 +46,12 @@ RUN pip install --no-cache-dir --upgrade pip && \
     playwright install chromium && \
     playwright install-deps chromium
 
-COPY . /app/uploader/
-# 与 main.py 中 Path(__file__).parent / "web" / "dist" 一致（勿写到 /app/web/dist）
-COPY --from=web-builder /web/dist /app/uploader/web/dist
+COPY . /app/
+# 与 main.py 中 Path(__file__).parent / "web" / "dist" 一致
+COPY --from=web-builder /web/dist /app/web/dist
 
 EXPOSE 8002
 
-CMD ["uvicorn", "uploader.main:app", "--host", "0.0.0.0", "--port", "8002"]
+ENV PYTHONPATH=/app
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8002"]
