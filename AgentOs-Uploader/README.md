@@ -35,6 +35,38 @@ AgentOS Uploader 是一个功能完整的视频自动上传平台，专为需要
 - 📧 WebSocket实时状态通知
 - 📝 详细的任务日志和错误记录
 
+## 🔐 认证架构
+
+> **重要变更**：从 v2.0 开始，Uploader 服务的 JWT 认证已移除，认证统一由 backend 服务处理。
+
+### 架构变更说明
+
+**旧架构（v1.x）：**
+```
+Frontend → Uploader (JWT 验证) → Response
+         ↑ JWT Token
+```
+
+**新架构（v2.x）：**
+```
+Frontend → Backend (JWT 验证) → Uploader (Header 验证) → Response
+         ↑ Cookie/Token         ↑ X-User-Id/X-User-Role Header
+```
+
+### 认证流程
+
+1. **Frontend** 携带 Cookie 或 Token 访问 Backend
+2. **Backend** 进行 JWT 认证，验证用户身份
+3. **Backend** 添加 `X-User-Id` 和 `X-User-Role` Header 转发请求到 Uploader
+4. **Uploader** 信任 Header 中的用户信息，不再进行 JWT 验证
+
+### 优势
+
+- ✅ 单一认证源：所有认证逻辑集中在 backend，便于维护
+- ✅ 安全性：uploader 服务不再暴露 JWT 密钥
+- ✅ 灵活性：可以轻松切换认证方式（session、OAuth 等）
+- ✅ 微服务友好：符合微服务架构的最佳实践
+
 ## 🚀 快速开始
 
 ### 环境准备
@@ -70,7 +102,7 @@ playwright install chromium
 # 复制环境变量模板
 cp .env.example .env
 
-# 编辑环境变量（至少修改 SECRET_KEY）
+# 编辑环境变量（配置数据库和存储路径）
 nano .env
 ```
 
@@ -80,7 +112,7 @@ nano .env
 |--------|------|--------|------|
 | `DATABASE_URL` | PostgreSQL数据库连接URL | `postgresql://uploader:uploader@localhost:5433/uploader` | ✅ |
 | `REDIS_URL` | Redis缓存连接URL | `redis://localhost:6380/0` | ✅ |
-| `SECRET_KEY` | JWT加密密钥（生产环境请使用强密钥） | - | ✅ |
+| ~~`SECRET_KEY`~~ | ~~JWT加密密钥~~（已移除，认证由 backend 统一处理） | - | ❌ |
 | `STORAGE_ROOT` | 存储根目录，用于保存视频、Cookie等文件 | `./storage` | ✅ |
 | `UPLOADER_HEADLESS` | 是否使用无头模式（生产环境建议开启） | `false` | ❌ |
 | `UPLOADER_CHROME_PATH` | Chrome浏览器路径 | `""` | ❌ |
@@ -406,7 +438,7 @@ services:
     environment:
       - DATABASE_URL=postgresql://uploader:uploader@postgres:5432/uploader
       - REDIS_URL=redis://redis:6379/0
-      - SECRET_KEY=your-production-secret-key
+      # JWT 认证已移除，由 backend 服务统一处理
     depends_on:
       - postgres
       - redis
@@ -459,7 +491,7 @@ volumes:
 
 - **使用无头模式**：设置 `UPLOADER_HEADLESS=true` 减少资源消耗
 - **配置持久化存储**：确保 `STORAGE_ROOT` 指向持久化目录
-- **设置强密钥**：使用复杂的 `SECRET_KEY` 保护JWT
+- **认证安全**：认证统一由 backend 服务处理，uploader 只接收已验证的请求
 - **监控资源**：定期检查浏览器会话内存使用情况
 - **备份会话数据**：定期备份Cookie和会话文件
 
@@ -474,7 +506,7 @@ volumes:
 
 - **敏感信息保护**：不要在代码中硬编码敏感信息
 - **定期更新Cookie**：设置Cookie自动刷新策略（建议每7-14天）
-- **访问控制**：实现API密钥或OAuth认证
+- **访问控制**：所有请求通过 backend 服务代理，由其统一进行认证和授权
 - **网络隔离**：将服务部署在隔离的网络环境中
 
 ### 4. 故障排除
