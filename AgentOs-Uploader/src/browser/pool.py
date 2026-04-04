@@ -8,7 +8,7 @@ from typing import Optional
 from playwright.async_api import async_playwright, Browser, BrowserContext, Playwright
 
 from src.config_manager import config_manager
-from uploader.conf import LOCAL_CHROME_PATH
+from src.config import settings
 from src.utils.playwright_net import merge_chromium_launch_options
 
 logger = logging.getLogger(__name__)
@@ -48,8 +48,8 @@ class BrowserPool:
                 self._playwright = await async_playwright().start()
 
             launch_options = merge_chromium_launch_options({"headless": True})
-            if LOCAL_CHROME_PATH:
-                launch_options["executable_path"] = LOCAL_CHROME_PATH
+            if settings.uploader_chrome_path:
+                launch_options["executable_path"] = settings.uploader_chrome_path
 
             self._browser = await self._playwright.chromium.launch(**launch_options)
             self._register_process_fallback()
