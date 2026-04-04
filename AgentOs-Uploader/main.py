@@ -35,9 +35,14 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
         request.state.request_id = request_id
-        response = await call_next(request)
-        response.headers["x-request-id"] = request_id
-        return response
+        try:
+            response = await call_next(request)
+            response.headers["x-request-id"] = request_id
+            return response
+        except Exception as e:
+            # 兼容 BaseHTTPMiddleware 在某些版本中无法正确处理异常响应的问题
+            from src.exceptions import global_exception_handler
+            return await global_exception_handler(request, e)
 
 
 # ─── 生命周期 ─────────────────────────────────────────────────────────────────
@@ -86,14 +91,16 @@ async def lifespan(app: FastAPI):
 
     status_emitter.subscribe(_on_session_status_changed)
 
-    def _on_login_success(session):
+    async def _on_login_success(session):
         try:
-            UploaderService().update_account_cookie(
+            # 3. 更新账号 Cookie
+            user_name = session.user_name or f"{session.platform}_user"
+            await UploaderService().update_account_cookie(
                 platform=session.platform,
-                user_name=session.user_name,
+                user_name=user_name,
                 cookie_filename=session.cookie_file,
             )
-            logger.info(f"Successfully registered account {session.user_name}")
+            logger.info(f"Successfully registered account {user_name}")
         except Exception as exc:
             logger.error(f"Failed to auto-register account: {exc}")
 
