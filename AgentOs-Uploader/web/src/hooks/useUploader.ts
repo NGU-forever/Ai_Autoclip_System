@@ -2,10 +2,9 @@
 // Video Distributor - Uploader API Hooks
 // ========================================
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import {
   http,
-  getToken,
   clearAuth,
   API_BASE,
   convertKeysToSnake,
@@ -106,9 +105,8 @@ export async function uploadVideo(file: File): Promise<VideoItem> {
   
   const response = await fetch('/api/admin/uploader/videos', {
     method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`,
-    },
+    // 认证由 backend 统一处理，通过 cookie 传递
+    credentials: 'include',
     body: formData,
   });
   
@@ -125,9 +123,8 @@ export async function uploadCover(file: File): Promise<VideoItem> {
   
   const response = await fetch('/api/admin/uploader/upload-cover', {
     method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`,
-    },
+    // 认证由 backend 统一处理，通过 cookie 传递
+    credentials: 'include',
     body: formData,
   });
   
@@ -154,9 +151,8 @@ export async function addAccount(
   
   const response = await fetch('/api/admin/uploader/accounts', {
     method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`,
-    },
+    // 认证由 backend 统一处理，通过 cookie 传递
+    credentials: 'include',
     body: formData,
   });
   
@@ -172,13 +168,13 @@ export async function deleteAccount(id: string): Promise<void> {
 }
 
 export async function publish(params: PublishParams): Promise<PublishResponse> {
-  const token = getToken();
   const response = await fetch(`${API_BASE}/uploader/publish`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
+    // 认证由 backend 统一处理，通过 cookie 传递
+    credentials: 'include',
     body: JSON.stringify(convertKeysToSnake(params)),
   });
 
@@ -264,11 +260,10 @@ const QR_LOGIN_CANCEL_URL = (taskId: string) =>
   `/api/admin/uploader/accounts/qr-persistent/${taskId}/cancel`;
 
 function fireKeepaliveCancelQRLogin(taskId: string): void {
-  const token = getToken();
-  if (!token) return;
   fetch(QR_LOGIN_CANCEL_URL(taskId), {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
+    // 认证由 backend 统一处理，通过 cookie 传递
+    credentials: 'include',
     keepalive: true,
   }).catch(() => {});
 }
@@ -340,41 +335,6 @@ export function useQRLogin() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [qrUrl, setQrUrl] = useState<string | null>(null);
-
-  const taskRef = useRef<{ taskId: string | null; st: string | null }>({
-    taskId: null,
-    st: null,
-  });
-
-  useEffect(() => {
-    const taskId = task?.taskId ?? null;
-    const st = (status?.status ?? task?.status) ?? null;
-    taskRef.current = { taskId, st };
-  }, [task, status]);
-
-  useEffect(() => {
-    return () => {
-      const { taskId, st } = taskRef.current;
-      if (taskId && st && st !== 'success') {
-        fireKeepaliveCancelQRLogin(taskId);
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    const onLeave = () => {
-      const { taskId, st } = taskRef.current;
-      if (taskId && st && st !== 'success') {
-        fireKeepaliveCancelQRLogin(taskId);
-      }
-    };
-    window.addEventListener('beforeunload', onLeave);
-    window.addEventListener('pagehide', onLeave);
-    return () => {
-      window.removeEventListener('beforeunload', onLeave);
-      window.removeEventListener('pagehide', onLeave);
-    };
-  }, []);
 
   const startLogin = useCallback(async (platform: string) => {
     setLoading(true);

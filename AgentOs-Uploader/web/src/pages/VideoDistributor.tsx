@@ -35,7 +35,7 @@ import {
   Loader2,
   Sparkles,
 } from 'lucide-react';
-import { clearAuth, redirectToMainLogin, getToken } from '../lib/http';
+import { clearAuth, redirectToMainLogin } from '../lib/http';
 import { useToast } from '../components/Toast';
 import {
   useVideos,
@@ -335,7 +335,7 @@ const VideoPreview: React.FC<{ video: VideoItem | null }> = ({ video }) => {
         <div className="relative w-full max-w-lg aspect-video bg-black rounded-os-md shadow-os overflow-hidden group">
           <video
             ref={videoRef}
-            src={`/api/admin/uploader/video-stream/${video.id}?access_token=${getToken() || ''}`}
+            src={`/api/admin/uploader/video-stream/${video.id}`}
             className="w-full h-full object-contain"
             onPlay={() => setIsPlaying(true)}
             onPause={() => setIsPlaying(false)}
