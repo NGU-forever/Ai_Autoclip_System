@@ -1,0 +1,70 @@
+services:
+  db:
+    image: pzm2mntd3t74vneyhy.xuanyuan.run/pgvector/pgvector:pg15-trixie
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: uploader
+      POSTGRES_PASSWORD: uploader
+      POSTGRES_DB: uploader
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "54322:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U uploader -d uploader"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "63799:6379"
+
+  uploader:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8002:8002"
+    environment:
+      - DATABASE_URL=postgresql://uploader:uploader@db:5432/uploader
+      - REDIS_URL=redis://redis:6379/0
+      - UPLOADER_HEADLESS=true
+      - UPLOADER_INDEPENDENT=true
+      - PYTHONPATH=/app
+    volumes:
+      - ../storage:/app/storage
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health', timeout=10).read()\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  uploader-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: >
+      celery -A src.tasks.celery_app.celery_app worker --loglevel=info --concurrency=1 --pool=solo --hostname=uploader-worker@%h
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://uploader:uploader@db:5432/uploader
+      - REDIS_URL=redis://redis:6379/0
+      - UPLOADER_INDEPENDENT=true
+      - PYTHONPATH=/app
+    volumes:
+      - ../storage:/app/storage
+    depends_on:
+      - redis
+      - uploader
+
+volumes:
+  postgres_data:
