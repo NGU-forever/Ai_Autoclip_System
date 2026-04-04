@@ -6,7 +6,7 @@ from playwright.async_api import Playwright, async_playwright, Browser
 import os
 import asyncio
 
-from uploader.conf import LOCAL_CHROME_PATH, LOCAL_CHROME_HEADLESS, COOKIES_DIR
+from src.config import settings
 from src.utils.base_social_media import set_init_script
 from src.utils.log import tencent_logger
 
@@ -27,14 +27,14 @@ def _resolve_account_file(account_file) -> str:
     p = Path(account_file)
     if p.is_absolute():
         return str(p)
-    return str(COOKIES_DIR / account_file)
+    return str(settings.cookies_dir / account_file)
 
 
 async def cookie_auth(account_file):
     from playwright._impl._errors import TimeoutError as PlaywrightTimeoutError
     resolved = _resolve_account_file(account_file)
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=LOCAL_CHROME_HEADLESS)
+        browser = await playwright.chromium.launch(headless=settings.uploader_headless)
         try:
             context = await browser.new_context(storage_state=resolved)
             context = await set_init_script(context)
@@ -70,7 +70,7 @@ async def cookie_auth(account_file):
 
 async def get_tencent_cookie(account_file):
     async with async_playwright() as playwright:
-        options = {'args': ['--lang en-GB'], 'headless': LOCAL_CHROME_HEADLESS}
+        options = {'args': ['--lang en-GB'], 'headless': settings.uploader_headless}
         browser = await playwright.chromium.launch(**options)
         context = await browser.new_context()
         try:
@@ -103,9 +103,9 @@ class TencentVideo(object):
         self.publish_date = publish_date
         self.account_file = _resolve_account_file(account_file)
         self.category = category
-        self.headless = LOCAL_CHROME_HEADLESS
+        self.headless = settings.uploader_headless
         self.is_draft = is_draft
-        self.local_executable_path = LOCAL_CHROME_PATH or None
+        self.local_executable_path = settings.uploader_chrome_path or None
         self.short_title = short_title
         self.declare_original = declare_original
 

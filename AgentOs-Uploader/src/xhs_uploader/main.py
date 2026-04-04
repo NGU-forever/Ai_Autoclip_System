@@ -5,7 +5,7 @@ from playwright.async_api import Playwright, async_playwright, Page, Browser, Ti
 import os
 import asyncio
 
-from uploader.conf import LOCAL_CHROME_PATH, LOCAL_CHROME_HEADLESS
+from src.config import settings
 from src.utils.base_social_media import set_init_script
 from src.utils.log import xiaohongshu_logger
 from src.platform_selectors import XHS_SELECTORS
@@ -14,7 +14,7 @@ from src.platform_selectors import XHS_SELECTORS
 async def cookie_auth(account_file):
     from playwright._impl._errors import TimeoutError as PlaywrightTimeoutError
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=LOCAL_CHROME_HEADLESS)
+        browser = await playwright.chromium.launch(headless=settings.uploader_headless)
         try:
             context = await browser.new_context(storage_state=account_file)
             context = await set_init_script(context)
@@ -67,7 +67,7 @@ async def xiaohongshu_setup(account_file, handle=False):
 async def xiaohongshu_cookie_gen(account_file):
     async with async_playwright() as playwright:
         options = {
-            'headless': LOCAL_CHROME_HEADLESS
+            'headless': settings.uploader_headless
         }
         # Make sure to run headed.
         browser = await playwright.chromium.launch(**options)
@@ -106,8 +106,8 @@ class XiaoHongShuVideo(object):
         self.publish_date = publish_date
         self.account_file = account_file
         self.date_format = '%Y年%m月%d日 %H:%M'
-        self.local_executable_path = LOCAL_CHROME_PATH
-        self.headless = LOCAL_CHROME_HEADLESS
+        self.local_executable_path = settings.uploader_chrome_path
+        self.headless = settings.uploader_headless
         self.thumbnail_path = thumbnail_path
         self.desc = (desc or "").strip() if desc else ""
         self.is_private = is_private
