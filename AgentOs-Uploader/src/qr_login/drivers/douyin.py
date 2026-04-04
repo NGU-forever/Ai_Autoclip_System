@@ -163,9 +163,18 @@ class DouyinDriver(BaseQRDriver):
     async def get_user_name(self, page: Page) -> Optional[str]:
         """获取抖音用户名"""
         try:
+            # 等待用户信息加载（侧边栏或顶部通常有用户名称）
+            try:
+                await page.wait_for_selector('.user-name, .nickname, [class*="userName"], [class*="user-name"]', timeout=5000)
+            except:
+                pass
+
             user_name = await page.evaluate("""
                 () => {
-                    const selectors = ['.user-name', '.nickname', '[class*="userName"]', '[class*="user-name"]'];
+                    const selectors = [
+                        '.user-name', '.nickname', '[class*="userName"]', '[class*="user-name"]',
+                        '[data-e2e="user-name"]', '.user-info-name'
+                    ];
                     for (const s of selectors) {
                         const el = document.querySelector(s);
                         if (el && el.textContent.trim()) return el.textContent.trim();

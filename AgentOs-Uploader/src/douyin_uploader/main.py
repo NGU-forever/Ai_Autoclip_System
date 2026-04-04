@@ -5,7 +5,7 @@ from playwright.async_api import Playwright, async_playwright, Page, Browser
 import os
 import asyncio
 
-from uploader.conf import LOCAL_CHROME_PATH, LOCAL_CHROME_HEADLESS
+from src.config import settings
 from src.utils.base_social_media import set_init_script
 from src.utils.log import douyin_logger
 
@@ -13,30 +13,41 @@ from src.utils.log import douyin_logger
 async def cookie_auth(account_file):
     from playwright._impl._errors import TimeoutError as PlaywrightTimeoutError
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=LOCAL_CHROME_HEADLESS)
+        browser = await playwright.chromium.launch(headless=settings.uploader_headless)
         try:
             context = await browser.new_context(storage_state=account_file)
             context = await set_init_script(context)
             page = await context.new_page()
             try:
-                # 缩短页面加载超时时间为10秒
-                await page.goto("https://creator.douyin.com/creator-micro/content/upload", timeout=10000)
+                # 增加页面加载超时时间为30秒，适配 Docker 或慢网环境
+                await page.goto("https://creator.douyin.com/creator-micro/content/upload", timeout=30000)
             except PlaywrightTimeoutError:
                 douyin_logger.warning("[+] 访问抖音创作者中心超时，网络可能不可用")
                 return False
             except Exception as e:
                 douyin_logger.warning(f"[+] 访问抖音创作者中心失败: {e}")
                 return False
+            
             try:
-                await page.wait_for_url("https://creator.douyin.com/creator-micro/content/upload", timeout=5000)
+                # 等待页面重定向或完成加载
+                await page.wait_for_load_state("networkidle", timeout=10000)
             except:
-                print("[+] 等待5秒 cookie 失效")
-                return False
-            if await page.get_by_text('手机号登录').count() or await page.get_by_text('扫码登录').count():
-                print("[+] 等待5秒 cookie 失效")
+                pass
+
+            # 检查是否仍在登录页（出现以下任意元素即表示未成功自动登录）
+            is_at_login = await page.evaluate("""
+                () => {
+                    const text = document.body.innerText;
+                    return text.includes('手机号登录') || text.includes('扫码登录') || text.includes('密码登录')
+                        || !!document.querySelector('.login-mask') || !!document.querySelector('.login-container');
+                }
+            """)
+
+            if is_at_login:
+                douyin_logger.info("[+] Cookie 已失效，处于登录页")
                 return False
             else:
-                print("[+] cookie 有效")
+                douyin_logger.info("[+] Cookie 有效")
                 return True
         finally:
             try:
@@ -62,7 +73,7 @@ async def douyin_setup(account_file, handle=False):
 
 async def douyin_cookie_gen(account_file):
     async with async_playwright() as playwright:
-        options = {'headless': LOCAL_CHROME_HEADLESS}
+        options = {'headless': settings.uploader_headless}
         browser = await playwright.chromium.launch(**options)
         context = await browser.new_context()
         try:
@@ -86,8 +97,8 @@ class DouYinVideo(object):
         self.publish_date = publish_date
         self.account_file = account_file
         self.date_format = '%Y年%m月%d日 %H:%M'
-        self.local_executable_path = LOCAL_CHROME_PATH
-        self.headless = LOCAL_CHROME_HEADLESS
+        self.local_executable_path = settings.uploader_chrome_path
+        self.headless = settings.uploader_headless
         self.thumbnail_path = thumbnail_path
         self.productLink = productLink
         self.productTitle = productTitle
