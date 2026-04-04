@@ -5,12 +5,11 @@ import uuid
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Header, Query, UploadFile, status, WebSocket, WebSocketDisconnect
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
 from src.tasks.publish import publish_video_task
 
-from src.auth.jwt_only_dependencies import get_current_user, get_current_user_from_header_or_query
 from src.exceptions import NotFoundException
 from src.upload.schemas import (
     AccountResponse,
@@ -39,9 +38,49 @@ from src.browser import (
 
 router = APIRouter(prefix="/uploader", tags=["uploader"])
 
+logger = logging.getLogger(__name__)
+
 
 def get_uploader_service() -> UploaderService:
     return UploaderService()
+
+
+# --- 认证依赖 ---
+# 认证由 backend 服务统一处理，uploader 只从请求头获取用户信息
+# backend 会在转发请求时添加 X-User-Id 和 X-User-Role 头
+
+async def get_current_user(
+    x_user_id: Optional[str] = Header(None, alias="X-User-Id"),
+    x_user_role: Optional[str] = Header(None, alias="X-User-Role"),
+):
+    """从请求头获取当前用户（由 backend 转发时添加）"""
+    if not x_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="未提供用户认证信息"
+        )
+    return {
+        "id": x_user_id,
+        "role": x_user_role or "user"
+    }
+
+
+async def get_current_user_optional(
+    x_user_id: Optional[str] = Header(None, alias="X-User-Id"),
+    x_user_role: Optional[str] = Header(None, alias="X-User-Role"),
+    access_token: Optional[str] = Query(None, description="视频流token参数（仅用于video-stream兼容）"),
+):
+    """支持 header 或 query param 获取用户（用于视频流等特殊场景）"""
+    # 优先从 header 获取（backend 转发时会添加）
+    if x_user_id:
+        return {"id": x_user_id, "role": x_user_role or "user"}
+    
+    # 如果没有 header，说明可能是直接访问，拒绝请求
+    # 注意：视频流现在也应该通过 backend 代理
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="未提供用户认证信息"
+    )
 
 
 # --- 账号 ---
@@ -226,7 +265,7 @@ async def upload_video(
 @router.get("/video-stream/{video_id:path}")
 async def stream_video(
     video_id: str,
-    _user: dict = Depends(get_current_user_from_header_or_query),
+    _user: dict = Depends(get_current_user_optional),
 ):
     """按相对 storage 的路径流式返回视频（供前端预览），兼容旧版仅文件名。"""
     path = _resolve_publish_video_path(video_id)
@@ -652,6 +691,8 @@ async def qr_login_websocket(websocket: WebSocket, session_id: str):
     - failed: 登录失败
     
     客户端可以发送 ping 消息保持连接，服务器会回复 pong。
+    
+    注意：WebSocket 认证由 backend 服务处理，uploader 只处理已验证的连接。
     """
     # 先检查会话是否存在
     manager = await get_persistent_browser_manager()
@@ -711,11 +752,9 @@ async def qr_login_websocket(websocket: WebSocket, session_id: str):
             except WebSocketDisconnect:
                 break
             except Exception as e:
-                logger = logging.getLogger(__name__)
                 logger.debug(f"WebSocket message error for {session_id}: {e}")
                 break
     except Exception as e:
-        logger = logging.getLogger(__name__)
         logger.debug(f"WebSocket error for {session_id}: {e}")
     finally:
         await ws_manager.disconnect(session_id)

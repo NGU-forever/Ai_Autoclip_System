@@ -3,7 +3,7 @@ import os
 
 
 class Settings(BaseSettings):
-    """Uploader 服务用配置；含与主 API 一致的 JWT 与存储字段，DB/Redis 仅保留占位默认便于单独部署。"""
+    """Uploader 服务用配置；认证已交由 backend 服务处理，不再配置 JWT 相关字段。"""
 
     project_name: str = "AgentOS Uploader Service"
     version: str = "1.0.0"
@@ -12,7 +12,9 @@ class Settings(BaseSettings):
     db_pool_min_conn: int = 5
     db_pool_max_conn: int = 50
 
-    secret_key: str
+    # 注意：JWT 配置已移除，认证由 backend 服务统一处理
+    # 如需兼容旧配置，保留字段但不再使用
+    secret_key: str = "deprecated-use-backend-auth"
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
 

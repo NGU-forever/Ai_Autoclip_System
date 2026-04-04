@@ -8,7 +8,7 @@ import asyncio
 from uploader.conf import LOCAL_CHROME_PATH, LOCAL_CHROME_HEADLESS
 from src.utils.base_social_media import set_init_script
 from src.utils.log import xiaohongshu_logger
-from src.selectors import XHS_SELECTORS
+from src.platform_selectors import XHS_SELECTORS
 
 
 async def cookie_auth(account_file):

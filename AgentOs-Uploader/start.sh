@@ -170,33 +170,91 @@ start_redis() {
 
 # 停止依赖服务
 stop_deps() {
-    echo "🛑 停止依赖服务..."
-    
+    echo "🛑 停止所有服务..."
+
+    # 首先停止 Python uploader 进程
+    echo "   🛑 停止 Python uploader 进程..."
+    pkill -f "python.*main.py.*uvicorn" || true
+    pkill -f "uvicorn.*main:app" || true
+    pkill -f "uvicorn" || true
+
+    # 等待进程完全退出
+    sleep 2
+
+    # 检查是否还有进程在监听端口
+    local port="$UPLOADER_PORT"
+    if lsof -ti:$port >/dev/null 2>&1; then
+        echo "   🔍 发现仍有进程在监听端口 $port，强制终止..."
+        pkill -9 -f "python.*main.py.*uvicorn" || true
+        pkill -9 -f "uvicorn.*main:app" || true
+        pkill -9 -f "uvicorn" || true
+        sleep 1
+    fi
+
+    # 停止 Docker 容器
     for container in "$POSTGRES_CONTAINER" "$REDIS_CONTAINER"; do
         if container_running "$container"; then
             echo "   🛑 停止 $container..."
             docker stop "$container" > /dev/null 2>&1 || true
         fi
     done
-    
-    print_success "依赖服务已停止"
+
+    # 停止 Celery Worker
+    pkill -f "celery.*worker" || true
+
+    print_success "所有服务已停止"
 }
 
 # 删除依赖容器
 remove_deps() {
     echo "🗑️  删除依赖容器..."
-    
+
     stop_deps
     sleep 2
-    
+
     for container in "$POSTGRES_CONTAINER" "$REDIS_CONTAINER"; do
         if container_exists "$container"; then
             echo "   🗑️  删除 $container..."
             docker rm "$container" > /dev/null 2>&1 || true
         fi
     done
-    
+
     print_success "容器已删除"
+}
+
+# 强制停止所有服务
+force_stop() {
+    echo "💥 强制停止所有服务..."
+
+    # 强制终止所有相关进程
+    pkill -9 -f "python.*main.py.*uvicorn" || true
+    pkill -9 -f "uvicorn.*main:app" || true
+    pkill -9 -f "uvicorn" || true
+    pkill -9 -f "celery.*worker" || true
+    pkill -9 -f "watchfiles" || true
+
+    # 等待进程终止
+    sleep 1
+
+    # 检查端口是否仍被占用
+    local port="$UPLOADER_PORT"
+    if lsof -ti:$port >/dev/null 2>&1; then
+        echo "   🚨 端口 $port 仍被占用，尝试直接杀死进程..."
+        lsof -ti:$port | xargs kill -9 2>/dev/null || true
+        sleep 1
+    fi
+
+    # 停止 Docker 容器
+    for container in "$POSTGRES_CONTAINER" "$REDIS_CONTAINER"; do
+        if container_running "$container"; then
+            docker stop "$container" > /dev/null 2>&1 || true
+        fi
+        if container_exists "$container"; then
+            docker rm "$container" > /dev/null 2>&1 || true
+        fi
+    done
+
+    print_success "所有服务已强制停止"
 }
 
 # 初始化存储目录
@@ -381,6 +439,7 @@ show_help() {
     echo "选项:"
     echo "  (无参数)         一键启动所有服务"
     echo "  --stop           停止所有服务和依赖"
+    echo "  --force-stop     强制停止所有服务（包括顽固进程）"
     echo "  --status         查看服务状态"
     echo "  --restart-deps   重启依赖服务 (PostgreSQL + Redis)"
     echo "  --remove-deps    删除依赖容器 (数据会丢失)"
@@ -395,6 +454,7 @@ show_help() {
     echo "使用示例:"
     echo "  ./start.sh                    # 启动所有服务"
     echo "  ./start.sh --stop             # 停止所有服务"
+    echo "  ./start.sh --force-stop       # 强制停止所有服务（顽固进程）"
     echo "  ./start.sh --status           # 查看状态"
     echo "  ./start.sh --worker           # 启动服务 + Worker"
     echo ""
@@ -421,6 +481,10 @@ main() {
                 ;;
             --stop)
                 stop_deps
+                exit 0
+                ;;
+            --force-stop)
+                force_stop
                 exit 0
                 ;;
             --status)
