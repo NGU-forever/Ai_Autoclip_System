@@ -13,7 +13,6 @@ from fastapi import UploadFile
 
 from src.config import settings
 from src.config_manager import config_manager
-from src.config import settings
 from src.douyin_uploader import douyin_setup, DouYinVideo
 from src.douyin_uploader.main import cookie_auth as douyin_cookie_auth
 from src.tencent_uploader import weixin_setup, TencentVideo
