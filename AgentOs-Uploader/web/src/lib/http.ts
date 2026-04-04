@@ -1,5 +1,5 @@
 // ========================================
-// Uploader SPA — HTTP 客户端（与主站字段约定一致）
+// Uploader SPA — HTTP 客户端（认证由 backend 统一处理，使用 cookie）
 // ========================================
 
 export const API_BASE = '/api/admin';
@@ -32,43 +32,23 @@ export function convertKeysToCamel(obj: unknown): unknown {
   return obj;
 }
 
-export function getToken(): string | null {
-  return localStorage.getItem('access_token');
-}
-
-export function setToken(token: string): void {
-  localStorage.setItem('access_token', token);
-}
-
-export function removeToken(): void {
-  localStorage.removeItem('access_token');
-}
-
-export function setUser(user: Record<string, unknown>): void {
-  localStorage.setItem('current_user', JSON.stringify(user));
-}
-
-export function getUser(): Record<string, unknown> | null {
-  try {
-    const raw = localStorage.getItem('current_user');
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-export function clearAuth(): void {
-  removeToken();
-  localStorage.removeItem('current_user');
-}
-
-/** 无 token 或 401：跳转主站登录页，并带回跳 next（当前页，不含 hash） */
+/** 跳转主站登录页，并带回跳 next（当前页，不含 hash） */
 export function redirectToMainLogin(): void {
-  clearAuth();
   const login = import.meta.env.VITE_LOGIN_PAGE_URL || 'http://localhost/login';
   const next = window.location.origin + window.location.pathname + window.location.search;
   try {
-    const u = new URL(login);
+    // 改用更宽松的URL验证，支持0.0.0.0等特殊地址
+    let u: URL;
+    if (!login.startsWith('http://') && !login.startsWith('https://')) {
+      // 特殊处理0.0.0.0和localhost
+      if (login.startsWith('0.0.0.0:') || login.startsWith('127.0.0.1:') || login.startsWith('localhost:')) {
+        u = new URL(`http://${login}`);
+      } else {
+        throw new Error('Invalid URL scheme');
+      }
+    } else {
+      u = new URL(login);
+    }
     u.searchParams.set('next', next);
     window.location.replace(u.toString());
   } catch {
@@ -76,8 +56,13 @@ export function redirectToMainLogin(): void {
   }
 }
 
+/** 清除认证信息（跳转登录页前调用） */
+export function clearAuth(): void {
+  // 认证由 backend 管理，这里只负责跳转
+  redirectToMainLogin();
+}
+
 interface RequestOptions {
-  skipAuth?: boolean;
   skipConvert?: boolean;
   rawResponse?: boolean;
 }
@@ -92,18 +77,13 @@ async function request<T>(
     'Content-Type': 'application/json',
   };
 
-  if (!options.skipAuth) {
-    const token = getToken();
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-  }
-
   const url = `${API_BASE}${path}`;
 
   const fetchOptions: RequestInit = {
     method,
     headers,
+    // 包含 cookie（由 backend 统一处理认证）
+    credentials: 'include',
   };
 
   if (body !== undefined && method !== 'GET') {

@@ -5,7 +5,6 @@
 // ========================================
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { getToken } from '../lib/http';
 import {
   startQRLogin,
   getQRCodeUrl,
@@ -51,11 +50,10 @@ const QR_LOGIN_CANCEL_URL = (taskId: string) =>
   `/api/admin/uploader/accounts/qr-login/${taskId}/cancel`;
 
 function fireKeepaliveCancelQRLogin(taskId: string): void {
-  const token = getToken();
-  if (!token) return;
   fetch(QR_LOGIN_CANCEL_URL(taskId), {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
+    // 认证由 backend 统一处理，通过 cookie 传递
+    credentials: 'include',
     keepalive: true,
   }).catch(() => {});
 }
