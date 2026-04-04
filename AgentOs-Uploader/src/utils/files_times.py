@@ -1,14 +1,14 @@
 from datetime import timedelta, datetime
 from pathlib import Path
 
-from uploader.conf import BASE_DIR
+from src.config import settings
 
 
 def get_absolute_path(relative_path: str, base_dir: str = None) -> str:
     if base_dir:
-        absolute_path = Path(BASE_DIR) / base_dir / relative_path
+        absolute_path = Path(settings.storage_root) / base_dir / relative_path
     else:
-        absolute_path = Path(BASE_DIR) / relative_path
+        absolute_path = Path(settings.storage_root) / relative_path
     return str(absolute_path)
 
 

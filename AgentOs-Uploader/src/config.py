@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     db_pool_min_conn: int = 5
     db_pool_max_conn: int = 50
 
+    # 独立运行模式（不经过 backend 转发，跳过 X-User-Id 校验）
+    uploader_independent: bool = False
+
     # 注意：JWT 配置已移除，认证由 backend 服务统一处理
     # 如需兼容旧配置，保留字段但不再使用
     secret_key: str = "deprecated-use-backend-auth"

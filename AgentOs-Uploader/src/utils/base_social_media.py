@@ -1,7 +1,9 @@
 from pathlib import Path
 from typing import List
-
-from uploader.conf import BASE_DIR
+import asyncio
+import os
+import json
+from src.config import settings
 
 SOCIAL_MEDIA_DOUYIN = "douyin"
 SOCIAL_MEDIA_TENCENT = "tencent"
