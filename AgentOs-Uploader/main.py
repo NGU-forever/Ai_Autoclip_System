@@ -190,6 +190,16 @@ app.include_router(uploader_router, prefix="/api/admin")
 # ─── Phase 5: 静态文件 / SPA 托管 ────────────────────────────────────────────
 # 使用 StaticFiles 替代手动 SPA 路由，获得标准 HTTP 缓存头、ETag、Range 支持
 
+class SPAStaticFiles(StaticFiles):
+    """兼容 WebSocket：非 HTTP 请求直接透传给下游"""
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        await super().__call__(scope, receive, send)
+
+
 def _static_dist_dir() -> Path:
     """web/dist：包内路径优先；兼容旧镜像曾使用 /app/web/dist。"""
     pkg = Path(__file__).resolve().parent
@@ -206,12 +216,12 @@ _STATIC_ROOT = _static_dist_dir()
 
 if _STATIC_ROOT.is_dir():
     # 挂载 /uploader-ui/ 前缀，支持独立运行时直接访问 /uploader-ui/
-    app.mount("/uploader-ui", StaticFiles(directory=str(_STATIC_ROOT), html=True), name="spa_prefixed")
+    app.mount("/uploader-ui", SPAStaticFiles(directory=str(_STATIC_ROOT), html=True), name="spa_prefixed")
 
     # 挂载 /assets 静态资源（支持浏览器长缓存）
     assets_dir = _STATIC_ROOT / "assets"
     if assets_dir.is_dir():
-        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+        app.mount("/assets", SPAStaticFiles(directory=str(assets_dir)), name="assets")
 
     # SPA 兜底：非 API 路径的 404 回退到 index.html（支持前端客户端路由）
     @app.exception_handler(StarletteHTTPException)
@@ -223,7 +233,7 @@ if _STATIC_ROOT.is_dir():
         return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
 
     # 挂载 SPA 根目录（必须在所有路由和 exception_handler 注册之后）
-    app.mount("/", StaticFiles(directory=str(_STATIC_ROOT), html=True), name="spa")
+    app.mount("/", SPAStaticFiles(directory=str(_STATIC_ROOT), html=True), name="spa")
 else:
     logger.warning(
         "SPA build directory not found at %s. Frontend will not be served.", _STATIC_ROOT
