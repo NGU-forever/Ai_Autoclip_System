@@ -116,7 +116,7 @@ class SessionManager:
             if not task.done():
                 task.cancel()
                 try:
-                    await asyncio.wait_for(asyncio.shield(task), timeout=5.0)
+                    await asyncio.wait_for(task, timeout=5.0)
                 except Exception:
                     pass
 
@@ -133,7 +133,7 @@ class SessionManager:
                     os.remove(session.qr_code_path)
 
         try:
-            await asyncio.shield(_fallback_cleanup())
+            await _fallback_cleanup()
         except asyncio.CancelledError:
             raise
 

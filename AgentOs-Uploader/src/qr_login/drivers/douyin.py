@@ -143,6 +143,15 @@ class DouyinDriver(BaseQRDriver):
             # 检测已扫码
             scan_indicators = ['已扫码', '扫描成功', '请在手机上确认', '确认登录']
             if any(x in page_text for x in scan_indicators):
+                # 新增： scanning 状态下也检测 cookie，确认已登录则直接返回 success
+                try:
+                    cookies = await page.context.cookies()
+                    cookie_names = {c["name"] for c in cookies}
+                    if any(name in cookie_names for name in ["sessionid", "sid_guard", "sid_tt", "odin_tt", "passport_csrf_token"]):
+                        logger.info("Douyin QR: cookie detected while scanning, treating as success")
+                        return 'success'
+                except Exception:
+                    pass
                 return 'scanning'
             
             # 检测过期
