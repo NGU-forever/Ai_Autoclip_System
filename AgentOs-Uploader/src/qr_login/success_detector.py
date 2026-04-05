@@ -44,7 +44,7 @@ class LoginSuccessDetector:
     
     # 关键 Cookie 名称
     COOKIE_NAMES: Dict[str, List[str]] = {
-        "douyin": ["sessionid", "sid_guard", "sid_tt", "uid_tt"],
+        "douyin": ["sessionid", "sid_guard", "sid_tt", "uid_tt", "odin_tt", "passport_csrf_token", "msToken"],
         "tencent": ["wxtokenkey", "wxuin", "wxsid"],
         "xhs": ["web_session", "userId"],
     }
@@ -179,19 +179,33 @@ class LoginSuccessDetector:
 
     @classmethod
     async def _check_cookies(cls, page: Page, platform: str) -> bool:
-        """通过 Cookie 检测登录成功"""
+        """通过 Cookie 检测登录成功
+        
+        抖音要求至少有一个核心登录态 cookie（sessionid 或 sid_guard）存在，
+        避免仅靠追踪类 cookie（如 msToken）误判登录成功。
+        """
         try:
             cookies = await page.context.cookies()
             cookie_dict = {c["name"]: c for c in cookies}
             required = cls.COOKIE_NAMES.get(platform, [])
             
+            # 核心登录态 cookie（必须至少有一个）
+            core_cookies = {"sessionid", "sid_guard"}
+            has_core = bool(core_cookies & cookie_dict.keys())
+            
+            matched = []
             for name in required:
                 cookie = cookie_dict.get(name)
                 if cookie and cookie.get("value") and len(cookie["value"]) > 5:
                     exp = cookie.get("expires", -1)
                     if exp == -1 or exp > time.time():
-                        return True
-            return False
+                        matched.append(name)
+            
+            # 平台特定逻辑：douyin 要求有核心 cookie + 至少一个辅助 cookie
+            if platform == "douyin":
+                return has_core and len(matched) >= 1
+            
+            return len(matched) > 0
         except Exception:
             return False
             

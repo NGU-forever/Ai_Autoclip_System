@@ -123,11 +123,16 @@ class QRLoginFlow:
                         return
                 
                 # 2. 统一成功判定
-                if await LoginSuccessDetector.check(page, session.platform):
+                login_success = await LoginSuccessDetector.check(page, session.platform)
+                if login_success:
                     logger.info(f"[{session.platform}] ✅ Login SUCCESS detected!")
                     session.user_name = await driver.get_user_name(page)
                     await cls.handle_login_success(session)
                     return
+                
+                # 新增：在 scanning 状态下如果检测不到成功，输出调试信息
+                if scan_status == 'scanning':
+                    logger.debug(f"[{session.platform}] Still scanning, waiting for login completion...")
                 
                 # 3. 定期自动刷新检测
                 if session.status == SessionStatus.READY and i >= last_auto_refresh_check + auto_refresh_interval:
@@ -165,14 +170,41 @@ class QRLoginFlow:
     @classmethod
     async def handle_login_success(cls, session: PersistentSession):
         """处理登录成功：保存 Cookie 并调用已注册的账号注册处理器"""
+        # 提前保存引用，防止被 managed_browser_session 的 finally 清理（竞态）
+        context = session.context
+        page = session.page
+        
+        if not context:
+            logger.error(f"[{session.platform}] Context is None, cannot save cookies")
+            session.status = SessionStatus.FAILED
+            session.error_msg = "会话上下文已丢失，无法保存 Cookie"
+            await status_emitter.emit(session)
+            return
+        
         try:
-            # 保存 Cookie
+            # 等待页面稳定，确保 cookie 完全写入
+            logger.info(f"[{session.platform}] Login detected, waiting for page to stabilize before saving cookies...")
+            await asyncio.sleep(3)
+            
+            # 保存 Cookie（使用局部变量 context，避免 session.context 被清理）
             cookie_file = f"persistent_{session.id}.json"
             platform_cookies_path = Path(settings.get_platform_cookies_path(session.platform))
             platform_cookies_path.mkdir(parents=True, exist_ok=True)
             cookie_path = platform_cookies_path / cookie_file
             
-            await session.context.storage_state(path=str(cookie_path))
+            await context.storage_state(path=str(cookie_path))
+            
+            # 验证保存的 cookie 文件包含关键字段
+            try:
+                import json
+                with open(cookie_path, "r", encoding="utf-8") as f:
+                    state = json.load(f)
+                cookie_names = {c.get("name") for c in state.get("cookies", [])}
+                key_cookies = cookie_names & {"sessionid", "sid_guard", "sid_tt", "odin_tt"}
+                logger.info(f"[{session.platform}] Saved {len(state.get('cookies', []))} cookies, key cookies: {key_cookies}")
+            except Exception as e:
+                logger.debug(f"[{session.platform}] Cookie verification failed: {e}")
+            
             session.cookie_file = cookie_file
             session.status = SessionStatus.SUCCESS
             session._login_success_event.set()
