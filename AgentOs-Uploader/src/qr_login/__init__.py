@@ -133,7 +133,17 @@ class QRLoginService:
             for _ in range(timeout):
                 # 检查状态
                 if await LoginSuccessDetector.check(page, task.platform):
-                    # 成功
+                    # 成功 — 等待页面稳定确保 cookie 完整写入
+                    logger.info(f"Task {task.id} login detected, waiting for stabilization...")
+                    await asyncio.sleep(3)
+                    
+                    # 刷新页面后再次确认登录态
+                    try:
+                        await page.reload(wait_until="domcontentloaded", timeout=15000)
+                        await asyncio.sleep(2)
+                    except Exception as e:
+                        logger.debug(f"Task {task.id} reload check skipped: {e}")
+                    
                     task.user_name = await driver.get_user_name(page)
                     # 保存 Cookie
                     storage = await context.storage_state()
@@ -143,6 +153,14 @@ class QRLoginService:
                     os.makedirs(dest.parent, exist_ok=True)
                     with open(dest, "w", encoding="utf-8") as f:
                         json.dump(storage, f, ensure_ascii=False, indent=2)
+                    
+                    # 验证保存的 cookie 关键字段
+                    try:
+                        cookie_names = {c.get("name") for c in storage.get("cookies", [])}
+                        key_cookies = cookie_names & {"sessionid", "sid_guard", "sid_tt", "odin_tt"}
+                        logger.info(f"Task {task.id} saved {len(storage.get('cookies', []))} cookies, key: {key_cookies}")
+                    except Exception:
+                        pass
                     
                     task.cookie_file = cookie_filename
                     task.status = LoginStatus.SUCCESS

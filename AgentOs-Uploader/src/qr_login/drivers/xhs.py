@@ -130,10 +130,19 @@ class XHSDriver(BaseQRDriver):
         try:
             user_name = await page.evaluate("""
                 () => {
-                    const selectors = ['.user-name', '.nickname', '[class*="user"]', '[class*="name"]'];
+                    const selectors = [
+                        '.creator-info [class*="name"]', '.ant-avatar + [class*="name"]',
+                        '[data-testid="user-name"]', '.user-profile [class*="name"]',
+                        '.user-name', '.nickname', '[class*="user"]', '[class*="name"]'
+                    ];
                     for (const s of selectors) {
                         const el = document.querySelector(s);
-                        if (el && el.textContent.trim()) return el.textContent.trim();
+                        if (el && el.textContent.trim()) {
+                            // Clean up common suffixes/prefixes
+                            let text = el.textContent.trim();
+                            text = text.replace(/退出登录|logout|sign.*out/i, '').trim();
+                            if (text) return text;
+                        }
                     }
                     return null;
                 }

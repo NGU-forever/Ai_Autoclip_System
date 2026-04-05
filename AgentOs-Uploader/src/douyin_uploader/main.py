@@ -7,6 +7,7 @@ import asyncio
 
 from src.config import settings
 from src.utils.base_social_media import set_init_script
+from src.utils.douyin_speed_routes import attach_douyin_speed_routes
 from src.utils.log import douyin_logger
 
 
@@ -17,16 +18,34 @@ async def cookie_auth(account_file):
         try:
             context = await browser.new_context(storage_state=account_file)
             context = await set_init_script(context)
+            await attach_douyin_speed_routes(context)
             page = await context.new_page()
+            
+            # 调试：输出加载的 cookie 信息
+            try:
+                cookies = await context.cookies()
+                cookie_names = {c.get("name") for c in cookies}
+                key_cookies = cookie_names & {"sessionid", "sid_guard", "sid_tt", "odin_tt", "passport_csrf_token"}
+                douyin_logger.info(f"[+] Loaded cookie file: {account_file}, total cookies: {len(cookies)}, key cookies: {key_cookies}")
+            except Exception as e:
+                douyin_logger.debug(f"[+] Failed to list cookies: {e}")
+            
             try:
                 # 增加页面加载超时时间为30秒，适配 Docker 或慢网环境
-                await page.goto("https://creator.douyin.com/creator-micro/content/upload", timeout=30000)
+                await page.goto("https://creator.douyin.com/creator-micro/content/upload", timeout=30000, wait_until="domcontentloaded")
             except PlaywrightTimeoutError:
                 douyin_logger.warning("[+] 访问抖音创作者中心超时，网络可能不可用")
                 return False
             except Exception as e:
                 douyin_logger.warning(f"[+] 访问抖音创作者中心失败: {e}")
                 return False
+            
+            # 等待几秒让页面稳定（重定向/弹窗等）
+            await asyncio.sleep(2)
+            
+            current_url = page.url
+            page_title = await page.title()
+            douyin_logger.info(f"[+] Page loaded: url={current_url}, title={page_title}")
             
             try:
                 # 等待页面重定向或完成加载
@@ -44,7 +63,14 @@ async def cookie_auth(account_file):
             """)
 
             if is_at_login:
-                douyin_logger.info("[+] Cookie 已失效，处于登录页")
+                douyin_logger.warning(f"[+] Cookie 已失效，处于登录页 (url={current_url})")
+                # 保存调试截图
+                try:
+                    debug_ss = os.path.join(os.path.dirname(account_file), f"auth_fail_{os.path.basename(account_file)}.png")
+                    await page.screenshot(path=debug_ss, full_page=True)
+                    douyin_logger.info(f"[+] Debug screenshot saved: {debug_ss}")
+                except Exception as e:
+                    douyin_logger.debug(f"[+] Screenshot failed: {e}")
                 return False
             else:
                 douyin_logger.info("[+] Cookie 有效")
@@ -132,6 +158,7 @@ class DouYinVideo(object):
         context = await browser.new_context(storage_state=f"{self.account_file}")
         try:
             context = await set_init_script(context)
+            await attach_douyin_speed_routes(context)
             page = await context.new_page()
             await page.goto("https://creator.douyin.com/creator-micro/content/upload")
             douyin_logger.info(f'[+]正在上传-------{self.title}.mp4')
