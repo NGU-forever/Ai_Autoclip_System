@@ -778,3 +778,111 @@ async def qr_login_websocket(websocket: WebSocket, session_id: str):
         logger.debug(f"WebSocket error for {session_id}: {e}")
     finally:
         await ws_manager.disconnect(session_id)
+
+
+# --- 交互式浏览器登录（手动上传改为浏览器登录）---
+
+@router.post("/accounts/interactive/init")
+async def init_interactive_browser(
+    platform: str = Query(..., description="平台：douyin、tencent 或 xhs"),
+    _user: dict = Depends(get_current_user),
+):
+    """
+    启动交互式浏览器会话。
+    
+    - 如果没有已登录账号：打开平台登录页，用户手动登录
+    - 如果有已登录账号：直接打开创作者平台
+    
+    浏览器以真实窗口形式打开，后端只负责检测登录并保存 cookie。
+    """
+    if platform not in ["douyin", "tencent", "xhs"]:
+        raise HTTPException(status_code=400, detail="不支持的平台，仅支持 douyin、tencent 或 xhs")
+    
+    from src.browser.interactive_manager import get_interactive_browser_manager
+    
+    manager = await get_interactive_browser_manager()
+    
+    # 检查是否已有已登录账号
+    existing_account = await manager.get_account_for_platform(platform)
+    
+    session = await manager.create_session(platform, existing_account)
+    
+    if existing_account:
+        return {
+            "sessionId": session['sessionId'],
+            "platform": platform,
+            "status": "creator_platform",
+            "message": f"已打开 {existing_account['user_name']} 的创作者平台",
+            "existingAccount": {
+                "id": existing_account['id'],
+                "userName": existing_account['user_name'],
+            }
+        }
+    
+    return {
+        "sessionId": session['sessionId'],
+        "platform": platform,
+        "status": "waiting_login",
+        "message": "浏览器已启动，请在打开的窗口中完成登录",
+    }
+
+
+@router.post("/accounts/interactive/{session_id}/close")
+async def close_interactive_browser(
+    session_id: str,
+    _user: dict = Depends(get_current_user),
+):
+    """
+    关闭交互式浏览器会话，释放浏览器资源。
+    """
+    from src.browser.interactive_manager import get_interactive_browser_manager
+    
+    manager = await get_interactive_browser_manager()
+    session = manager.get_session(session_id)
+    
+    if not session:
+        return {"success": True, "message": "会话已关闭"}
+    
+    await manager.close_session(session_id)
+    
+    return {"success": True, "message": "浏览器已关闭"}
+
+
+@router.get("/accounts/interactive/{session_id}/status")
+async def get_interactive_browser_status(
+    session_id: str,
+    _user: dict = Depends(get_current_user),
+):
+    """
+    获取交互式浏览器会话状态。
+    
+    前端应轮询此接口获取最新状态（建议每 2 秒一次）。
+    """
+    from src.browser.interactive_manager import get_interactive_browser_manager
+    
+    manager = await get_interactive_browser_manager()
+    session = manager.get_session(session_id)
+    
+    if not session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    
+    return session
+
+
+@router.get("/browser-view")
+async def get_browser_view_url(
+    _user: dict = Depends(get_current_user),
+):
+    """
+    获取浏览器远程桌面访问链接。
+    
+    返回 noVNC 的访问地址，通过浏览器即可查看和操作 Docker 内的浏览器。
+    """
+    # noVNC 访问地址（通过 Docker 映射的 6080 端口）
+    # 实际访问时需要通过后端代理或直接访问
+    return {
+        "novncUrl": "http://localhost:6080/vnc.html?autoconnect=true&resize=scale",
+        "vncPort": 5900,
+        "websockifyPort": 6080,
+        "message": "请在新标签页打开 noVncUrl 查看浏览器画面"
+    }

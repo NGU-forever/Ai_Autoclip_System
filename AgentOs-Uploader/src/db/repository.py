@@ -26,13 +26,12 @@ class AccountRepository:
 
     async def create(
         self,
-        account_id: str,
         platform: str,
         account_name: str,
         cookie_file: str,
     ) -> Account:
         account = Account(
-            id=account_id,
+            id=str(uuid.uuid4()),
             platform=platform,
             account_name=account_name,
             cookie_file=cookie_file,
@@ -54,6 +53,28 @@ class AccountRepository:
             .order_by(Account.created_at)
         )
         return result.scalars().first()
+
+    async def get_by_platform_and_cookie(
+        self, platform: str, cookie_file: str
+    ) -> Optional[Account]:
+        """根据平台和 cookie 文件查找账号"""
+        result = await self._session.execute(
+            select(Account)
+            .where(
+                Account.platform == platform,
+                Account.cookie_file == cookie_file,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def update_status(self, account_id: str, is_active: bool) -> bool:
+        """更新账号激活状态"""
+        result = await self._session.execute(
+            update(Account)
+            .where(Account.id == account_id)
+            .values(is_active=is_active, updated_at=datetime.now())
+        )
+        return result.rowcount > 0
 
     async def list_by_platform(self, platform: str) -> List[Account]:
         result = await self._session.execute(
