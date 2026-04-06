@@ -26,15 +26,33 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    command: >
+      sh -c '
+        echo "=== Starting Xvfb ===" &&
+        Xvfb :99 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset &
+        export DISPLAY=:99 &&
+        sleep 1 &&
+        echo "=== Starting Fluxbox ===" &&
+        fluxbox &
+        echo "=== Starting x11vnc ===" &&
+        x11vnc -display :99 -nopw -forever -shared -rfbport 5900 &
+        echo "=== Starting noVNC ===" &&
+        websockify --web=/usr/share/novnc --cert=self.pem --key=self.pem 6080 localhost:5900 &
+        echo "=== Starting Uploader API ===" &&
+        uvicorn main:app --host 0.0.0.0 --port 8002
+      '
     restart: unless-stopped
     ports:
       - "8002:8002"
+      - "5900:5900"
+      - "6080:6080"
     environment:
       - DATABASE_URL=postgresql://uploader:uploader@db:5432/uploader
       - REDIS_URL=redis://redis:6379/0
-      - UPLOADER_HEADLESS=true
+      - UPLOADER_HEADLESS=false
       - UPLOADER_INDEPENDENT=true
       - PYTHONPATH=/app
+      - DISPLAY=:99
     volumes:
       - ../storage:/app/storage
     depends_on:

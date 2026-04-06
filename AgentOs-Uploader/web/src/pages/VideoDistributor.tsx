@@ -49,6 +49,7 @@ import {
   UploaderCookieInvalidError,
 } from '../hooks/useUploader';
 import { usePersistentQRLogin } from '../hooks/usePersistentQRLogin';
+import { useInteractiveBrowser } from '../hooks/useInteractiveBrowser';
 
 const MAIN_APP_ORIGIN = (import.meta.env.VITE_MAIN_APP_ORIGIN || 'http://localhost').replace(/\/$/, '');
 
@@ -802,6 +803,242 @@ const QRLoginModal: React.FC<{
   );
 };
 
+// Interactive Browser Login Component (简化版)
+const InteractiveBrowserLogin: React.FC<{
+  onAccountAdded: () => void;
+}> = ({ onAccountAdded }) => {
+  const { showToast } = useToast();
+  
+  const {
+    session,
+    isLoading,
+    error,
+    startBrowser,
+    closeBrowser,
+  } = useInteractiveBrowser();
+
+  // 监听登录成功
+  useEffect(() => {
+    if (session?.status === 'logged_in' && session.accountId) {
+      showToast('success', `登录成功：${session.userName || '新账号'}`);
+      onAccountAdded();
+    }
+  }, [session?.status, session?.accountId, session?.userName, onAccountAdded, showToast]);
+
+  // 获取状态文本
+  const getStatusText = () => {
+    if (!session) return '请选择平台启动浏览器';
+    switch (session.status) {
+      case 'initializing': return '正在启动浏览器窗口...';
+      case 'waiting_login': return '请在打开的浏览器窗口中完成登录';
+      case 'logged_in': return '登录成功！正在跳转创作者平台...';
+      case 'creator_platform': return session.existingAccount 
+        ? `已打开 ${session.existingAccount.userName} 的创作者平台` 
+        : '已打开创作者平台';
+      case 'closed': return '浏览器已关闭';
+      default: return '未知状态';
+    }
+  };
+
+  // 获取状态颜色
+  const getStatusColor = () => {
+    if (!session) return 'text-muted';
+    switch (session.status) {
+      case 'initializing': return 'text-amber-500';
+      case 'waiting_login': return 'text-blue-500';
+      case 'logged_in': return 'text-green-500';
+      case 'creator_platform': return 'text-green-600';
+      case 'closed': return 'text-red-500';
+      default: return 'text-muted';
+    }
+  };
+
+  // 如果浏览器未启动，显示平台选择
+  if (!session) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="space-y-4"
+      >
+        <p className="text-sm text-muted text-center">
+          选择平台启动浏览器，在真实浏览器窗口中完成登录
+        </p>
+        <div className="grid grid-cols-3 gap-4">
+          <button
+            onClick={() => startBrowser('douyin')}
+            disabled={isLoading}
+            className="flex flex-col items-center gap-3 p-6 bg-surface-2 hover:bg-surface border border-border-os-weak hover:border-primary/50 rounded-os-md transition-all group shadow-sm hover:shadow-os-soft disabled:opacity-50"
+          >
+            <div className="w-14 h-14 rounded-os-sm bg-black flex items-center justify-center text-white text-xl group-hover:scale-110 transition-transform shadow-lg">
+              ▶
+            </div>
+            <div className="text-center">
+              <p className="text-text font-medium">抖音</p>
+              <p className="text-xs text-muted mt-1">浏览器登录</p>
+            </div>
+          </button>
+
+          <button
+            onClick={() => startBrowser('tencent')}
+            disabled={isLoading}
+            className="flex flex-col items-center gap-3 p-6 bg-surface-2 hover:bg-surface border border-border-os-weak hover:border-primary/50 rounded-os-md transition-all group shadow-sm hover:shadow-os-soft disabled:opacity-50"
+          >
+            <div className="w-14 h-14 rounded-os-sm bg-[#07C160] flex items-center justify-center text-white text-xl group-hover:scale-110 transition-transform shadow-lg">
+              ✓
+            </div>
+            <div className="text-center">
+              <p className="text-text font-medium">视频号</p>
+              <p className="text-xs text-muted mt-1">浏览器登录</p>
+            </div>
+          </button>
+
+          <button
+            onClick={() => startBrowser('xhs')}
+            disabled={isLoading}
+            className="flex flex-col items-center gap-3 p-6 bg-surface-2 hover:bg-surface border border-border-os-weak hover:border-primary/50 rounded-os-md transition-all group shadow-sm hover:shadow-os-soft disabled:opacity-50"
+          >
+            <div className="w-14 h-14 rounded-os-sm bg-[#FF2442] flex items-center justify-center text-white text-xl group-hover:scale-110 transition-transform shadow-lg">
+              📕
+            </div>
+            <div className="text-center">
+              <p className="text-text font-medium">小红书</p>
+              <p className="text-xs text-muted mt-1">浏览器登录</p>
+            </div>
+          </button>
+        </div>
+        
+        {isLoading && (
+          <div className="flex items-center justify-center gap-2 text-muted py-4">
+            <Loader2 size={20} className="animate-spin text-primary" />
+            <span>正在启动浏览器...</span>
+          </div>
+        )}
+        
+        {error && (
+          <div className="flex items-center gap-2 text-red-500 text-sm justify-center">
+            <AlertCircle size={16} />
+            <span>{error}</span>
+          </div>
+        )}
+        
+        <div className="flex items-start gap-2 text-xs text-muted bg-surface-2 p-3 rounded-os-sm">
+          <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+          <div className="space-y-1">
+            <p>使用说明：</p>
+            <ul className="list-disc list-inside space-y-0.5">
+              <li>点击平台按钮启动真实浏览器窗口</li>
+              <li>在打开的浏览器窗口中完成登录</li>
+              <li>登录成功后账号会自动保存到数据库</li>
+              <li>可继续使用浏览器访问创作者平台发布内容</li>
+              <li>点击"关闭浏览器"结束会话（30分钟自动关闭）</li>
+            </ul>
+          </div>
+        </div>
+      </motion.div>
+    );
+  }
+
+  // 浏览器已启动，显示状态和控制按钮
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="space-y-4"
+    >
+      {/* 状态卡片 */}
+      <div className="p-4 bg-surface-2 rounded-os-md border border-border-os-weak space-y-3">
+        <div className="flex items-center gap-3">
+          <div 
+            className="w-10 h-10 rounded-os-sm flex items-center justify-center text-white text-lg font-bold"
+            style={{ 
+              backgroundColor: 
+                session.platform === 'douyin' ? '#000' : 
+                session.platform === 'tencent' ? '#07C160' : '#FF2442' 
+            }}
+          >
+            {session.platform === 'douyin' ? '▶' : 
+             session.platform === 'tencent' ? '✓' : '📕'}
+          </div>
+          <div className="flex-1">
+            <p className="text-sm font-medium text-text">
+              {session.platform === 'douyin' ? '抖音' : 
+               session.platform === 'tencent' ? '视频号' : '小红书'}
+            </p>
+            <p className={`text-xs ${getStatusColor()}`}>{getStatusText()}</p>
+          </div>
+          
+          {/* 状态图标 */}
+          {session.status === 'initializing' && (
+            <Loader2 size={20} className="animate-spin text-amber-500" />
+          )}
+          {session.status === 'waiting_login' && (
+            <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+          )}
+          {session.status === 'logged_in' && (
+            <CheckCircle2 size={20} className="text-green-500" />
+          )}
+          {session.status === 'creator_platform' && (
+            <ExternalLink size={20} className="text-green-600" />
+          )}
+        </div>
+
+        {/* 账号信息 */}
+        {session.userName && (
+          <div className="flex items-center gap-2 text-sm text-muted bg-bg p-2 rounded-os-sm">
+            <Check size={14} className="text-green-500" />
+            <span>已保存账号：<span className="text-text">{session.userName}</span></span>
+          </div>
+        )}
+
+        {/* 操作按钮 */}
+        <div className="flex gap-2 pt-2">
+          <button
+            onClick={closeBrowser}
+            className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/30 rounded-os-sm text-sm font-medium transition-colors"
+          >
+            <X size={16} />
+            关闭浏览器
+          </button>
+        </div>
+      </div>
+
+      {/* 提示信息 */}
+      <div className="flex items-start gap-2 text-xs text-muted bg-surface-2 p-3 rounded-os-sm">
+        <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+        <div className="space-y-1">
+          {session.status === 'initializing' && (
+            <p>浏览器窗口正在启动，请稍候...</p>
+          )}
+          {session.status === 'waiting_login' && (
+            <>
+              <p>请在打开的浏览器窗口中：</p>
+              <ul className="list-disc list-inside space-y-0.5">
+                <li>使用手机号/扫码等方式登录</li>
+                <li>登录成功后系统会自动保存账号</li>
+                <li>您可以继续使用浏览器发布内容</li>
+              </ul>
+            </>
+          )}
+          {session.status === 'logged_in' && (
+            <p>登录成功！正在跳转创作者平台...</p>
+          )}
+          {session.status === 'creator_platform' && (
+            <>
+              <p>已打开创作者平台，您可以：</p>
+              <ul className="list-disc list-inside space-y-0.5">
+                <li>在浏览器中直接发布/管理内容</li>
+                <li>关闭此对话框不影响浏览器使用</li>
+                <li>点击"关闭浏览器"结束会话（30分钟自动关闭）</li>
+              </ul>
+            </>
+          )}
+        </div>
+      </div>
+    </motion.div>
+  );
+};
+
 // Account Manager Modal
 const AccountManager: React.FC<{
   isOpen: boolean;
@@ -848,7 +1085,7 @@ const AccountManager: React.FC<{
   onRequestQRLogin,
   onDismissQRLogin,
 }) => {
-  const [activeTab, setActiveTab] = useState<'qr' | 'manual'>('qr');
+  const [activeTab, setActiveTab] = useState<'qr' | 'browser'>('qr');
   const [showQRLogin, setShowQRLogin] = useState(false);
   const [qrPlatform, setQrPlatform] = useState<QRPersistPlatform | null>(null);
 
@@ -945,15 +1182,15 @@ const AccountManager: React.FC<{
                   扫码添加（推荐）
                 </button>
                 <button
-                  onClick={() => setActiveTab('manual')}
+                  onClick={() => setActiveTab('browser')}
                   className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-os-sm text-sm font-medium transition-all ${
-                    activeTab === 'manual'
+                    activeTab === 'browser'
                       ? 'bg-primary text-bg shadow-os-soft'
                       : 'text-muted hover:text-text'
                   }`}
                 >
-                  <Upload size={16} />
-                  手动上传
+                  <ExternalLink size={16} />
+                  浏览器登录
                 </button>
               </div>
 
@@ -1017,64 +1254,14 @@ const AccountManager: React.FC<{
                 </motion.div>
               )}
 
-              {/* Manual Tab Content */}
-              {activeTab === 'manual' && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                >
-                  {/* Add Account Form */}
-                  <form onSubmit={handleSubmit} className="space-y-4 mb-6">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm text-muted mb-2">平台</label>
-                        <select
-                          value={platform}
-                          onChange={(e) => setPlatform(e.target.value as 'douyin' | 'tencent' | 'xhs')}
-                          className="w-full bg-surface-2 border border-border-os-weak rounded-os-sm px-3 py-2 text-text text-sm focus:outline-none focus:border-primary transition-colors"
-                        >
-                          <option value="douyin">抖音</option>
-                          <option value="tencent">视频号</option>
-                          <option value="xhs">小红书</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-sm text-muted mb-2">账号昵称</label>
-                        <input
-                          type="text"
-                          value={userName}
-                          onChange={(e) => setUserName(e.target.value)}
-                          placeholder="输入账号标识"
-                          className="w-full bg-surface-2 border border-border-os-weak rounded-os-sm px-3 py-2 text-text text-sm placeholder:text-muted focus:outline-none focus:border-primary transition-colors"
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-sm text-muted mb-2">Cookie 文件 (JSON)</label>
-                      <div className="flex gap-2">
-                        <label className="flex-1 flex items-center gap-3 px-4 py-3 bg-surface-2 border border-border-os-weak border-dashed rounded-os-sm cursor-pointer hover:bg-surface transition-colors">
-                          <Upload size={18} className="text-primary" />
-                          <span className="text-sm text-muted truncate">
-                            {cookieFile ? cookieFile.name : '点击选择 cookie JSON 文件'}
-                          </span>
-                          <input
-                            type="file"
-                            accept=".json"
-                            onChange={(e) => setCookieFile(e.target.files?.[0] || null)}
-                            className="hidden"
-                          />
-                        </label>
-                        <button
-                          type="submit"
-                          disabled={isSubmitting || !userName.trim() || !cookieFile}
-                          className="px-4 py-2 bg-primary hover:bg-primary-dark text-bg rounded-os-sm text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-os-soft"
-                        >
-                          {isSubmitting ? <RefreshCw size={16} className="animate-spin" /> : <Plus size={16} />}
-                        </button>
-                      </div>
-                    </div>
-                  </form>
-                </motion.div>
+              {/* Browser Login Tab Content */}
+              {activeTab === 'browser' && (
+                <InteractiveBrowserLogin 
+                  onAccountAdded={() => {
+                    onAccountsRefresh?.();
+                    setActiveTab('qr');
+                  }}
+                />
               )}
 
               {/* Account List */}

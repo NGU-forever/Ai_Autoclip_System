@@ -37,7 +37,13 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         ffmpeg \
         fonts-noto-cjk \
-        fontconfig && \
+        fontconfig \
+        xvfb \
+        x11vnc \
+        fluxbox \
+        novnc \
+        websockify \
+        curl && \
     rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt /tmp/requirements.txt

@@ -191,11 +191,11 @@ app.include_router(uploader_router, prefix="/api/admin")
 # 使用 StaticFiles 替代手动 SPA 路由，获得标准 HTTP 缓存头、ETag、Range 支持
 
 class SPAStaticFiles(StaticFiles):
-    """兼容 WebSocket：非 HTTP 请求直接透传给下游"""
+    """兼容 WebSocket：非 HTTP 请求不做处理，由 FastAPI 路由处理"""
 
     async def __call__(self, scope, receive, send):
+        # 只处理 HTTP 请求，其他类型（如 WebSocket）直接返回
         if scope["type"] != "http":
-            await self.app(scope, receive, send)
             return
         await super().__call__(scope, receive, send)
 
