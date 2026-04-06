@@ -55,6 +55,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-b2b_user}:${POSTGRES_PASSWORD:-b2b_password}@db:5432/${POSTGRES_DB:-b2b_db}
       UPLOADER_HEADLESS: "true"
       REDIS_URL: redis://redis:6379/0
+      DISPLAY: ":99"
     volumes:
       - ./storage:/app/storage
     depends_on:
@@ -62,6 +63,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+    command: >
+      sh -c "Xvfb :99 -screen 0 1920x1080x24 > /dev/null 2>&1 &
+      uvicorn main:app --host 0.0.0.0 --port 8002"
     healthcheck:
       test: [ "CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health', timeout=10).read()\"" ]
       interval: 30s
