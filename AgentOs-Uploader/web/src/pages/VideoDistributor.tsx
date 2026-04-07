@@ -803,7 +803,7 @@ const QRLoginModal: React.FC<{
   );
 };
 
-// Interactive Browser Login Component (简化版)
+// Interactive Browser Login Component (noVNC 版)
 const InteractiveBrowserLogin: React.FC<{
   onAccountAdded: () => void;
 }> = ({ onAccountAdded }) => {
@@ -829,9 +829,9 @@ const InteractiveBrowserLogin: React.FC<{
   const getStatusText = () => {
     if (!session) return '请选择平台启动浏览器';
     switch (session.status) {
-      case 'initializing': return '正在启动浏览器窗口...';
-      case 'waiting_login': return '请在打开的浏览器窗口中完成登录';
-      case 'logged_in': return '登录成功！正在跳转创作者平台...';
+      case 'initializing': return '正在启动浏览器...';
+      case 'waiting_login': return '请在下方浏览器中完成登录';
+      case 'logged_in': return '登录成功！';
       case 'creator_platform': return session.existingAccount 
         ? `已打开 ${session.existingAccount.userName} 的创作者平台` 
         : '已打开创作者平台';
@@ -862,7 +862,7 @@ const InteractiveBrowserLogin: React.FC<{
         className="space-y-4"
       >
         <p className="text-sm text-muted text-center">
-          选择平台启动浏览器，在真实浏览器窗口中完成登录
+          选择平台启动浏览器，在下方窗口中完成登录
         </p>
         <div className="grid grid-cols-3 gap-4">
           <button
@@ -927,10 +927,9 @@ const InteractiveBrowserLogin: React.FC<{
           <div className="space-y-1">
             <p>使用说明：</p>
             <ul className="list-disc list-inside space-y-0.5">
-              <li>点击平台按钮启动真实浏览器窗口</li>
-              <li>在打开的浏览器窗口中完成登录</li>
-              <li>登录成功后账号会自动保存到数据库</li>
-              <li>可继续使用浏览器访问创作者平台发布内容</li>
+              <li>点击平台按钮启动浏览器</li>
+              <li>在下方窗口中完成登录</li>
+              <li>登录成功后账号自动保存</li>
               <li>点击"关闭浏览器"结束会话（30分钟自动关闭）</li>
             </ul>
           </div>
@@ -939,18 +938,18 @@ const InteractiveBrowserLogin: React.FC<{
     );
   }
 
-  // 浏览器已启动，显示状态和控制按钮
+  // 浏览器已启动，显示 noVNC 全屏嵌入
   return (
     <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="space-y-4"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className="fixed inset-0 z-50 flex flex-col bg-bg"
     >
-      {/* 状态卡片 */}
-      <div className="p-4 bg-surface-2 rounded-os-md border border-border-os-weak space-y-3">
+      {/* 顶部状态栏 */}
+      <div className="h-14 bg-surface-2 border-b border-border-os-weak flex items-center justify-between px-4 flex-shrink-0">
         <div className="flex items-center gap-3">
           <div 
-            className="w-10 h-10 rounded-os-sm flex items-center justify-center text-white text-lg font-bold"
+            className="w-8 h-8 rounded-os-sm flex items-center justify-center text-white text-sm font-bold"
             style={{ 
               backgroundColor: 
                 session.platform === 'douyin' ? '#000' : 
@@ -960,80 +959,57 @@ const InteractiveBrowserLogin: React.FC<{
             {session.platform === 'douyin' ? '▶' : 
              session.platform === 'tencent' ? '✓' : '📕'}
           </div>
-          <div className="flex-1">
+          <div>
             <p className="text-sm font-medium text-text">
               {session.platform === 'douyin' ? '抖音' : 
                session.platform === 'tencent' ? '视频号' : '小红书'}
             </p>
             <p className={`text-xs ${getStatusColor()}`}>{getStatusText()}</p>
           </div>
-          
+        </div>
+
+        <div className="flex items-center gap-3">
           {/* 状态图标 */}
           {session.status === 'initializing' && (
-            <Loader2 size={20} className="animate-spin text-amber-500" />
+            <Loader2 size={18} className="animate-spin text-amber-500" />
           )}
           {session.status === 'waiting_login' && (
             <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
           )}
           {session.status === 'logged_in' && (
-            <CheckCircle2 size={20} className="text-green-500" />
+            <CheckCircle2 size={18} className="text-green-500" />
           )}
           {session.status === 'creator_platform' && (
-            <ExternalLink size={20} className="text-green-600" />
+            <CheckCircle2 size={18} className="text-green-600" />
           )}
-        </div>
-
-        {/* 账号信息 */}
-        {session.userName && (
-          <div className="flex items-center gap-2 text-sm text-muted bg-bg p-2 rounded-os-sm">
-            <Check size={14} className="text-green-500" />
-            <span>已保存账号：<span className="text-text">{session.userName}</span></span>
-          </div>
-        )}
-
-        {/* 操作按钮 */}
-        <div className="flex gap-2 pt-2">
+          
+          {/* 账号信息 */}
+          {session.userName && (
+            <div className="flex items-center gap-1.5 text-sm text-muted bg-bg px-2 py-1 rounded-os-sm">
+              <Check size={12} className="text-green-500" />
+              <span>{session.userName}</span>
+            </div>
+          )}
+          
+          {/* 关闭按钮 */}
           <button
             onClick={closeBrowser}
-            className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/30 rounded-os-sm text-sm font-medium transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/30 rounded-os-sm text-sm font-medium transition-colors"
           >
-            <X size={16} />
+            <X size={14} />
             关闭浏览器
           </button>
         </div>
       </div>
 
-      {/* 提示信息 */}
-      <div className="flex items-start gap-2 text-xs text-muted bg-surface-2 p-3 rounded-os-sm">
-        <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
-        <div className="space-y-1">
-          {session.status === 'initializing' && (
-            <p>浏览器窗口正在启动，请稍候...</p>
-          )}
-          {session.status === 'waiting_login' && (
-            <>
-              <p>请在打开的浏览器窗口中：</p>
-              <ul className="list-disc list-inside space-y-0.5">
-                <li>使用手机号/扫码等方式登录</li>
-                <li>登录成功后系统会自动保存账号</li>
-                <li>您可以继续使用浏览器发布内容</li>
-              </ul>
-            </>
-          )}
-          {session.status === 'logged_in' && (
-            <p>登录成功！正在跳转创作者平台...</p>
-          )}
-          {session.status === 'creator_platform' && (
-            <>
-              <p>已打开创作者平台，您可以：</p>
-              <ul className="list-disc list-inside space-y-0.5">
-                <li>在浏览器中直接发布/管理内容</li>
-                <li>关闭此对话框不影响浏览器使用</li>
-                <li>点击"关闭浏览器"结束会话（30分钟自动关闭）</li>
-              </ul>
-            </>
-          )}
-        </div>
+      {/* noVNC 嵌入区域 */}
+      <div className="flex-1 relative">
+        <iframe
+          src={`${window.location.protocol}//${window.location.hostname}:6080/vnc.html?autoconnect=true&resize=scale&quality=9&compression=2&shared=true`}
+          className="w-full h-full border-0"
+          title="Browser"
+          allow="fullscreen"
+        />
       </div>
     </motion.div>
   );
