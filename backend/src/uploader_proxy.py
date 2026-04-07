@@ -150,27 +150,3 @@ async def proxy_to_uploader(
         path = f"/{path}"
     
     return await _proxy_request(request, path, user)
-
-
-# WebSocket 代理（特殊处理）
-@router.websocket("/uploader/ws/{path:path}")
-async def proxy_uploader_websocket(websocket: Any, path: str):
-    """
-    WebSocket 代理到 uploader 服务。
-    
-    注意：WebSocket 认证在握手阶段完成，backend 先验证，然后转发到 uploader。
-    """
-    from fastapi import WebSocket
-    from starlette.websockets import WebSocketDisconnect
-    
-    if not isinstance(websocket, WebSocket):
-        await websocket.close(code=1002)
-        return
-    
-    # 这里需要特殊处理 WebSocket 认证和转发
-    # 暂时返回错误，建议直接连接 uploader 服务（通过 nginx 或前端配置）
-    await websocket.accept()
-    await websocket.send_json({
-        "error": "WebSocket connections should go directly to uploader service"
-    })
-    await websocket.close(code=1002)
