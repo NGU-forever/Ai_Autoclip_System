@@ -136,18 +136,36 @@ class InteractiveBrowserManager:
                 
                 # 检测是否需要使用 headless 模式
                 headless = self._should_use_headless()
-                if headless:
-                    logger.warning("检测到无图形环境，将使用 headless 模式启动浏览器")
-                    session['error_msg'] = "当前运行在 headless 模式，浏览器窗口不可见"
                 
-                # 启动浏览器
-                browser = await playwright.chromium.launch(
-                    headless=headless,
-                    args=[
-                        '--window-size=1400,900',
-                        '--disable-blink-features=AutomationControlled',
-                    ]
-                )
+                # 启动浏览器（非 headless 失败时自动回退到 headless）
+                browser = None
+                try:
+                    browser = await playwright.chromium.launch(
+                        headless=headless,
+                        args=[
+                            '--window-size=1400,900',
+                            '--disable-blink-features=AutomationControlled',
+                        ]
+                    )
+                    if not headless:
+                        logger.info(f"浏览器已启动（有头模式），session: {session_id}")
+                except Exception as launch_err:
+                    err_msg = str(launch_err).lower()
+                    # 如果是图形环境相关错误，尝试回退到 headless
+                    if not headless and ('display' in err_msg or 'x server' in err_msg or 
+                                         'headless' in err_msg or 'xvfb' in err_msg):
+                        logger.warning(f"无法启动图形界面浏览器，回退到 headless 模式: {launch_err}")
+                        browser = await playwright.chromium.launch(
+                            headless=True,
+                            args=[
+                                '--window-size=1400,900',
+                                '--disable-blink-features=AutomationControlled',
+                            ]
+                        )
+                        session['error_msg'] = "当前运行在 headless 模式，浏览器窗口不可见"
+                    else:
+                        raise  # 其他错误直接抛出
+                
                 session['browser'] = browser
                 
                 # 创建上下文
@@ -511,11 +529,13 @@ class InteractiveBrowserManager:
         """检测是否应该使用 headless 模式
         
         检测以下条件：
-        1. 环境变量 INTERACTIVE_HEADLESS=true
-        2. 环境变量 DISPLAY 未设置（说明没有 X Server）
-        3. 无法连接到 X Server
+        1. 环境变量 INTERACTIVE_HEADLESS=true/false（最高优先级）
+        2. macOS: 默认尝试非 headless（Playwright 原生支持）
+        3. Linux: 检测 DISPLAY 和 X Server
+        4. Windows: 默认尝试非 headless
         """
         import os
+        import platform
         
         # 如果明确设置了环境变量，优先使用
         headless_env = os.environ.get('INTERACTIVE_HEADLESS', '').lower()
@@ -524,10 +544,21 @@ class InteractiveBrowserManager:
         if headless_env in ('false', '0', 'no'):
             return False
         
+        system = platform.system()
+        
+        # macOS: Playwright 原生支持，默认尝试弹窗
+        if system == 'Darwin':
+            return False
+        
+        # Windows: 默认尝试弹窗
+        if system == 'Windows':
+            return False
+        
+        # Linux: 检测 X Server
         # 检测 DISPLAY 环境变量
         display = os.environ.get('DISPLAY')
         if not display:
-            # 没有 DISPLAY 变量，可能是 Docker 环境
+            # 没有 DISPLAY 变量，可能是 Docker/SSH 环境
             return True
         
         # 尝试检测 X Server 是否真的可用
