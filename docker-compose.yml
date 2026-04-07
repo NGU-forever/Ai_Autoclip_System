@@ -88,8 +88,18 @@ services:
         APT_USE_TENCENT_MIRROR: ${APT_USE_TENCENT_MIRROR:-0}
         VITE_LOGIN_PAGE_URL: ${VITE_LOGIN_PAGE_URL:-http://localhost/login}
         VITE_MAIN_APP_ORIGIN: ${VITE_MAIN_APP_ORIGIN:-http://localhost}
-    command: >
-      celery -A src.tasks.celery_app.celery_app worker --loglevel=info --concurrency=1 --pool=solo --hostname=uploader-worker@%h
+    command:
+      - /bin/sh
+      - -c
+      - |
+        # 启动虚拟显示
+        Xvfb :99 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset &
+        sleep 2
+        # 验证 DISPLAY 设置
+        export DISPLAY=:99
+        echo "DISPLAY=$DISPLAY"
+        # 启动 Celery Worker
+        exec celery -A src.tasks.celery_app.celery_app worker --loglevel=info --concurrency=1 --pool=solo --hostname=uploader-worker@%h
     restart: unless-stopped
     env_file:
       - .env
@@ -98,6 +108,7 @@ services:
       UPLOADER_HEADLESS: "true"
       REDIS_URL: redis://redis:6379/0
       PYTHONPATH: /app:/app/uploader
+      DISPLAY: ":99"
     volumes:
       - ./storage:/app/storage
     depends_on:
