@@ -118,6 +118,10 @@ services:
     restart: unless-stopped
     ports:
       - "8000:8000"
+      # 浏览器登录服务端口
+      - "8003:8003"
+      # noVNC 远程桌面端口
+      - "6080:6080"
     env_file:
       - .env
     environment:
@@ -126,6 +130,15 @@ services:
       OPENSTORYLINE_PUBLIC_URL: ${OPENSTORYLINE_PUBLIC_URL:-http://localhost/clip}
       OPENSTORYLINE_INTERNAL_URL: http://storyline:7860
       DEV_MODE: "false"
+      # 浏览器登录服务配置
+      BROWSER_LOGIN_ENABLED: "true"
+      BROWSER_LOGIN_PORT: "8003"
+      NOVNC_HOST: "${NOVNC_HOST:-localhost}"
+      NOVNC_PORT: "${NOVNC_PORT:-6080}"
+      VNC_PORT: "${VNC_PORT:-5900}"
+      DISPLAY: ":99"
+      # Python 路径，确保能导入 uploader 模块
+      PYTHONPATH: "/app:/app/uploader"
     depends_on:
       db:
         condition: service_healthy
@@ -133,6 +146,8 @@ services:
         condition: service_started
     volumes:
       - ./storage:/app/storage # 核心存储挂载（代码来自镜像，不挂载 backend）
+      # 挂载 uploader 代码，以便复用浏览器模块
+      - ./AgentOs-Uploader/src:/app/uploader/src:ro
     healthcheck:
       test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).read()" ]
       interval: 10s
