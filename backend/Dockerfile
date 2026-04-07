@@ -44,10 +44,7 @@ RUN apt-get update && \
 # ============================================================
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir playwright && \
-    playwright install chromium && \
-    playwright install-deps chromium
+    pip install -r requirements.txt
 
 # ============================================================
 # Stage 3 — Copy application code
