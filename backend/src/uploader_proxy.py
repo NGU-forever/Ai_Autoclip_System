@@ -136,15 +136,13 @@ async def _proxy_request(
 async def proxy_to_uploader(
     request: Request,
     path: str,
-    user: dict = Depends(get_current_user),
 ):
     """
     代理所有 uploader 相关请求到 uploader 服务。
     
-    - 先由 backend 进行 JWT 认证
-    - 认证通过后，添加 X-User-Id 和 X-User-Role header 转发到 uploader
-    - uploader 服务不再进行 JWT 验证，只信任 backend 添加的 header
+    已取消权限校验，默认以 admin 身份访问。
     """
+    user = {"id": "admin", "role": "admin"}
     # 处理根路径
     if not path:
         path = "/"
