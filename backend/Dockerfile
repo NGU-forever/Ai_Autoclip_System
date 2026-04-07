@@ -29,7 +29,14 @@ RUN set -ex \
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         fonts-noto-cjk \
-        fontconfig && \
+        fontconfig \
+        # 浏览器登录依赖 (VNC + 虚拟显示)
+        xvfb \
+        x11vnc \
+        fluxbox \
+        novnc \
+        websockify \
+        curl && \
     rm -rf /var/lib/apt/lists/*
 
 # ============================================================
@@ -37,7 +44,10 @@ RUN apt-get update && \
 # ============================================================
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir playwright && \
+    playwright install chromium && \
+    playwright install-deps chromium
 
 # ============================================================
 # Stage 3 — Copy application code
@@ -47,6 +57,12 @@ COPY . .
 
 # Expose FastAPI port
 EXPOSE 8000
+# 浏览器登录服务端口
+EXPOSE 8003
+# noVNC 端口
+EXPOSE 6080
+# VNC 端口
+EXPOSE 5900
 
 # ============================================================
 # Entrypoint: run DB init/seed scripts, then start the server
