@@ -12,29 +12,18 @@ RUN npm install
 COPY web/ ./
 RUN npm run build
 
-FROM pzm2mntd3t74vneyhy.xuanyuan.run/python:3.11-slim
+# 第一阶段：系统依赖安装（使用腾讯云镜像加速）
+FROM pzm2mntd3t74vneyhy.xuanyuan.run/python:3.11-slim AS system-deps
 
 ENV PIP_INDEX_URL=https://mirrors.cloud.tencent.com/pypi/simple/ \
-    PIP_TRUSTED_HOST=mirrors.cloud.tencent.com \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app:/app/uploader
+    PIP_TRUSTED_HOST=mirrors.cloud.tencent.com
 
-WORKDIR /app
-
+# 替换 apt 源为腾讯云镜像（加速系统依赖下载）
 RUN set -ex \
-    # 替换以支持公网镜像（腾讯云公网镜像），避免内网镜像在非腾讯云 VPC 环境失败
-    && sed -i 's|deb.debian.org|mirrors.cloud.tencent.com|g' /etc/apt/sources.list 2>/dev/null || true \
-    && sed -i 's|security.debian.org|mirrors.cloud.tencent.com/debian-security|g' /etc/apt/sources.list 2>/dev/null || true \
-    # 替换 DEB822 格式的 .sources 文件（Debian 12+）
-    && find /etc/apt/sources.list.d/ -name "*.sources" -exec sed -i 's|deb.debian.org|mirrors.cloud.tencent.com|g' {} \; 2>/dev/null || true \
-    && find /etc/apt/sources.list.d/ -name "*.sources" -exec sed -i 's|security.debian.org|mirrors.cloud.tencent.com/debian-security|g' {} \; 2>/dev/null || true \
-    # 同时处理遗留的 .list 文件（兼容旧系统）
-    && find /etc/apt/sources.list.d/ -name "*.list" -exec sed -i 's|deb.debian.org|mirrors.cloud.tencent.com|g' {} \; 2>/dev/null || true \
-    && find /etc/apt/sources.list.d/ -name "*.list" -exec sed -i 's|security.debian.org|mirrors.cloud.tencent.com/debian-security|g' {} \; 2>/dev/null || true
-
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
+    && sed -i 's|deb.debian.org|mirrors.cloud.tencent.com|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || true \
+    && sed -i 's|security.debian.org|mirrors.cloud.tencent.com/debian-security|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || true \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
         ffmpeg \
         fonts-noto-cjk \
         fontconfig \
@@ -43,21 +32,32 @@ RUN apt-get update && \
         fluxbox \
         novnc \
         websockify \
-        curl && \
-    rm -rf /var/lib/apt/lists/*
+        curl \
+    && rm -rf /var/lib/apt/lists/*
 
+# 设置环境变量
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app \
+    PIP_INDEX_URL=https://mirrors.cloud.tencent.com/pypi/simple/ \
+    PIP_TRUSTED_HOST=mirrors.cloud.tencent.com
+
+# 加速 pip 安装（使用腾讯云镜像）
+RUN pip config set global.index-url https://mirrors.cloud.tencent.com/pypi/simple/
+
+WORKDIR /app
+
+# 安装 Python 依赖
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install -r /tmp/requirements.txt && \
+    pip install --no-cache-dir -r /tmp/requirements.txt && \
     playwright install chromium && \
     playwright install-deps chromium
 
+# 复制应用代码
 COPY . /app/
-# 与 main.py 中 Path(__file__).parent / "web" / "dist" 一致
 COPY --from=web-builder /web/dist /app/web/dist
 
 EXPOSE 8002
-
-ENV PYTHONPATH=/app
 
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8002"]
