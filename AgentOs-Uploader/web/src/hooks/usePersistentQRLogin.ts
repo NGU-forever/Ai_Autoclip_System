@@ -1,6 +1,6 @@
 // ========================================
 // 分发页扫码：按需 qr-login（单任务浏览器，用完即关）
-// Phase 3: 集成 WebSocket 实现实时状态推送，移除轮询
+// 使用 HTTP 轮询获取登录状态
 // 对外仍使用 Persistent* 类型名以兼容 VideoDistributor / QRLoginModal
 // ========================================
 
@@ -13,7 +13,6 @@ import {
   persistentHeartbeat,
   type QRLoginStatus,
 } from './useUploader';
-import { useWebSocketQR, type WebSocketQRMessage } from './useWebSocketQR';
 
 // ===== Types =====
 
@@ -80,11 +79,7 @@ function mapTaskStatusToModal(
   }
 }
 
-function mapWebSocketStatusToModal(
-  s: WebSocketQRMessage['status'] | undefined
-): PersistentSession['status'] {
-  return s || 'failed';
-}
+
 
 function toPersistentSessionStatus(st: QRLoginStatus): PersistentSessionStatus {
   return {
@@ -96,21 +91,7 @@ function toPersistentSessionStatus(st: QRLoginStatus): PersistentSessionStatus {
   };
 }
 
-function toPersistentSessionStatusFromWebSocket(data: WebSocketQRMessage): PersistentSessionStatus {
-  return {
-    sessionId: data.sessionId,
-    platform: data.platform,
-    status: mapWebSocketStatusToModal(data.status),
-    account: data.userName ? {
-      id: data.sessionId,
-      platform: data.platform as PersistentPlatform,
-      userName: data.userName,
-      cookieFile: '',
-      status: 1,
-    } : undefined,
-    error: data.error,
-  };
-}
+
 
 // ===== Hook =====
 
@@ -118,14 +99,12 @@ export interface UsePersistentQRLoginReturn {
   sessions: Record<PersistentPlatform, PersistentSession | null>;
   loading: Record<PersistentPlatform, boolean>;
   errors: Record<PersistentPlatform, string | null>;
-  /** WebSocket 连接状态 */
-  wsConnected: Record<PersistentPlatform, boolean>;
   /** 用户点击某平台扫码时调用：取消旧任务并启动新的 qr-login */
   requestQRLogin: (platform: PersistentPlatform) => Promise<void>;
   refreshQR: (platform: PersistentPlatform) => Promise<string | null>;
   refreshAllPersistentQR: () => Promise<boolean>;
   closeSession: (platform: PersistentPlatform) => void;
-  /** 轮询检查状态（WebSocket 失败时的 fallback） */
+  /** 轮询检查状态 */
   checkStatus: (platform: PersistentPlatform) => Promise<PersistentSessionStatus | null>;
   reinitSession: (platform: PersistentPlatform) => Promise<void>;
 }
@@ -148,11 +127,7 @@ const emptyErrors = (): Record<PersistentPlatform, string | null> => ({
   xhs: null,
 });
 
-const emptyWsConnected = (): Record<PersistentPlatform, boolean> => ({
-  douyin: false,
-  tencent: false,
-  xhs: false,
-});
+
 
 export function usePersistentQRLogin(): UsePersistentQRLoginReturn {
   const [sessions, setSessions] = useState<Record<PersistentPlatform, PersistentSession | null>>(
@@ -160,70 +135,9 @@ export function usePersistentQRLogin(): UsePersistentQRLoginReturn {
   );
   const [loading, setLoading] = useState<Record<PersistentPlatform, boolean>>(emptyLoading);
   const [errors, setErrors] = useState<Record<PersistentPlatform, string | null>>(emptyErrors);
-  const [wsConnected, setWsConnected] = useState<Record<PersistentPlatform, boolean>>(emptyWsConnected);
 
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
-
-  // 获取当前活跃会话 ID（包括 success 状态，确保 WS 不会在成功处理完成前断开）
-  const getActiveSessionId = useCallback((platform: PersistentPlatform): string | null => {
-    const session = sessionsRef.current[platform];
-    if (session?.sessionId) {
-      return session.sessionId;
-    }
-    return null;
-  }, []);
-
-  // WebSocket 消息处理
-  const handleWebSocketMessage = useCallback((platform: PersistentPlatform, data: WebSocketQRMessage) => {
-    const currentSession = sessionsRef.current[platform];
-    if (!currentSession) return;
-
-    const newStatus = mapWebSocketStatusToModal(data.status);
-    
-    // 更新会话状态
-    if (newStatus !== currentSession.status || data.userName) {
-      setSessions(prev => ({
-        ...prev,
-        [platform]: { 
-          ...currentSession, 
-          status: newStatus,
-          message: data.message || currentSession.message,
-          // 如果后端传了用户名，说明登录成功
-          userName: data.userName || currentSession.userName
-        },
-      }));
-    }
-  }, []);
-
-  // 为每个平台创建 WebSocket 连接
-  const douyinWs = useWebSocketQR({
-    sessionId: getActiveSessionId('douyin'),
-    onMessage: (data) => handleWebSocketMessage('douyin', data),
-    onConnect: () => setWsConnected(prev => ({ ...prev, douyin: true })),
-    onDisconnect: () => setWsConnected(prev => ({ ...prev, douyin: false })),
-  });
-
-  const tencentWs = useWebSocketQR({
-    sessionId: getActiveSessionId('tencent'),
-    onMessage: (data) => handleWebSocketMessage('tencent', data),
-    onConnect: () => setWsConnected(prev => ({ ...prev, tencent: true })),
-    onDisconnect: () => setWsConnected(prev => ({ ...prev, tencent: false })),
-  });
-
-  const xhsWs = useWebSocketQR({
-    sessionId: getActiveSessionId('xhs'),
-    onMessage: (data) => handleWebSocketMessage('xhs', data),
-    onConnect: () => setWsConnected(prev => ({ ...prev, xhs: true })),
-    onDisconnect: () => setWsConnected(prev => ({ ...prev, xhs: false })),
-  });
-
-  // WebSocket 连接映射
-  const wsMap = {
-    douyin: douyinWs,
-    tencent: tencentWs,
-    xhs: xhsWs,
-  };
 
   const cancelActiveTask = useCallback(async (platform: PersistentPlatform) => {
     const existing = sessionsRef.current[platform];
@@ -288,8 +202,7 @@ export function usePersistentQRLogin(): UsePersistentQRLoginReturn {
     return () => clearInterval(timer);
   }, []);
 
-  // HTTP 轮询 fallback：当 WebSocket 未连接时，通过 HTTP API 轮询状态
-  // 这是关键的可靠性保障 —— Docker/nginx 可能不支持 WebSocket 升级
+  // HTTP 轮询：通过 HTTP API 定期查询登录状态
   useEffect(() => {
     const pollTimer = setInterval(async () => {
       const cur = sessionsRef.current;
@@ -406,7 +319,7 @@ export function usePersistentQRLogin(): UsePersistentQRLoginReturn {
     setSessions(prev => ({ ...prev, [platform]: null }));
   }, []);
 
-  // checkStatus: 登录成功时必须走 HTTP API 获取完整的 account 数据
+  // checkStatus: 使用 HTTP API 获取登录状态
   const checkStatus = useCallback(
     async (platform: PersistentPlatform): Promise<PersistentSessionStatus | null> => {
       const session = sessionsRef.current[platform];
@@ -414,14 +327,6 @@ export function usePersistentQRLogin(): UsePersistentQRLoginReturn {
         return null;
       }
 
-      // 如果 WebSocket 已连接且状态不是 success，可以使用 WebSocket 的最新消息
-      // 注意：success 时必须走 HTTP API，因为 WebSocket 消息不包含完整的 account 数据
-      const ws = wsMap[platform];
-      if (ws.isConnected && ws.lastMessage && ws.lastMessage.status !== 'success') {
-        return toPersistentSessionStatusFromWebSocket(ws.lastMessage);
-      }
-
-      // 使用 HTTP API 获取完整状态（包括 account 信息）
       try {
         const st = await getQRLoginStatus(session.sessionId);
         const mapped = mapTaskStatusToModal(st.status);
@@ -437,8 +342,7 @@ export function usePersistentQRLogin(): UsePersistentQRLoginReturn {
         return null;
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [douyinWs.isConnected, tencentWs.isConnected, xhsWs.isConnected, douyinWs.lastMessage, tencentWs.lastMessage, xhsWs.lastMessage]
+    []
   );
 
   const reinitSession = useCallback(
@@ -452,7 +356,6 @@ export function usePersistentQRLogin(): UsePersistentQRLoginReturn {
     sessions,
     loading,
     errors,
-    wsConnected,
     requestQRLogin,
     refreshQR,
     refreshAllPersistentQR,
