@@ -71,25 +71,9 @@ async def lifespan(app: FastAPI):
 
     shutdown_task = asyncio.create_task(_watch_shutdown())
 
-    # 注册浏览器核心事件到上传服务层（解耦：browser 包不再直接依赖 upload 包）
-    from src.browser.events import status_emitter
+    # 注册登录成功事件处理
     from src.browser.flows.qr_login import QRLoginFlow
-    from src.upload.websocket import notify_session_status
     from src.upload.service import UploaderService
-
-    async def _on_session_status_changed(session):
-        try:
-            await notify_session_status(
-                session_id=session.id,
-                platform=session.platform,
-                status=session.status.value,
-                user_name=session.user_name,
-                error=session.error_msg,
-            )
-        except Exception as exc:
-            logger.debug(f"Failed to notify status change via WebSocket: {exc}")
-
-    status_emitter.subscribe(_on_session_status_changed)
 
     async def _on_login_success(session):
         try:
