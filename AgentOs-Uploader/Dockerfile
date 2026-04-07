@@ -42,9 +42,6 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_INDEX_URL=https://mirrors.cloud.tencent.com/pypi/simple/ \
     PIP_TRUSTED_HOST=mirrors.cloud.tencent.com
 
-# 加速 pip 安装（使用腾讯云镜像）
-RUN pip config set global.index-url https://mirrors.cloud.tencent.com/pypi/simple/
-
 WORKDIR /app
 
 # 安装 Python 依赖
