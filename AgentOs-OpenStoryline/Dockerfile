@@ -53,7 +53,8 @@ RUN apt-get update && \
 RUN pip config set global.index-url https://mirrors.tencentyun.com/pypi/simple
 
 # 5. 安装 Python 依赖
-RUN pip install -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install -r requirements.txt
 
 COPY run.sh .
 COPY src/ ./src/
