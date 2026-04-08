@@ -28,7 +28,7 @@ class Account(Base):
     """平台账号（替代 accounts.json）"""
     __tablename__ = "accounts"
 
-    id = Column(String(36), primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     platform = Column(String(32), nullable=False, index=True)   # douyin / tencent / xhs
     account_name = Column(String(128), nullable=False)
     cookie_file = Column(String(256), nullable=False)           # 相对 cookies 目录的文件名
@@ -54,9 +54,9 @@ class UploaderTask(Base):
     """上传任务（替代 uploader_tasks.json）"""
     __tablename__ = "uploader_tasks"
 
-    id = Column(String(36), primary_key=True)                   # UUID
+    id = Column(Integer, primary_key=True, autoincrement=True)
     platform = Column(String(32), nullable=False, index=True)
-    account_id = Column(String(36), ForeignKey("accounts.id"), nullable=True, index=True)
+    account_id = Column(Integer, ForeignKey("accounts.id"), nullable=True, index=True)
     video_id = Column(String(512), nullable=False)
     video_path = Column(String(512), nullable=True)
     title = Column(String(256), nullable=True)
