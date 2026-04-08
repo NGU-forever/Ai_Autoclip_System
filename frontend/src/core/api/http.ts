@@ -107,12 +107,12 @@ async function request<T>(
 
     const response = await fetch(url, fetchOptions);
 
-    // 401 → 跳转登录（但登录接口本身返回 401 不跳转）
-    if (response.status === 401 && !path.startsWith('/auth/login')) {
-        clearAuth();
-        window.location.href = '/login';
-        throw new Error('未授权，请重新登录');
-    }
+    // DEV_MODE: 登录已移除 - 401 不再跳转登录页
+    // if (response.status === 401 && !path.startsWith('/auth/login')) {
+    //     clearAuth();
+    //     window.location.href = '/login';
+    //     throw new Error('未授权，请重新登录');
+    // }
 
     if (!response.ok) {
         let errorMessage = `请求失败 (${response.status})`;
