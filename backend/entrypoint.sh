@@ -24,17 +24,10 @@ fi
 
 echo "✅ DB setup complete. Starting API server..."
 
-# 检查是否启用浏览器登录服务
-if [ "$BROWSER_LOGIN_ENABLED" = "true" ]; then
-  echo "🌐 Browser login service enabled on port ${BROWSER_LOGIN_PORT:-8003}"
-  echo "🖥️  Remote desktop (noVNC) available on port ${NOVNC_PORT:-6080}"
-  exec python start_services.py
+# 传统模式：只启动主服务
+if [ "$DEV_MODE" = "true" ]; then
+  echo "DEV_MODE=true, starting Uvicorn with --reload"
+  exec uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
 else
-  # 传统模式：只启动主服务
-  if [ "$DEV_MODE" = "true" ]; then
-    echo "DEV_MODE=true, starting Uvicorn with --reload"
-    exec uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
-  else
-    exec uvicorn src.main:app --host 0.0.0.0 --port 8000
-  fi
+  exec uvicorn src.main:app --host 0.0.0.0 --port 8000
 fi
