@@ -69,29 +69,30 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
-    command: >
-      sh -c "
-      # 启动虚拟显示
-      Xvfb :99 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset > /dev/null 2>&1 &
-      sleep 2
-      
-      # 启动 VNC 服务器（供交互式浏览器使用）
-      x11vnc -display :99 -nopw -forever -rfbport 5901 -shared -noxdamage > /dev/null 2>&1 &
-      sleep 1
-      
-      # 启动 noVNC（Web 版 VNC 客户端）
-      websockify --web=/usr/share/novnc 0.0.0.0:6081 localhost:5901 > /dev/null 2>&1 &
-      
-      echo '========================================' &&
-      echo 'Uploader services started:' &&
-      echo '  - API: http://0.0.0.0:8002' &&
-      echo '  - noVNC: http://localhost:6081' &&
-      echo '  - VNC: localhost:5901' &&
-      echo '========================================' &&
-      
-      # 启动主应用
-      uvicorn main:app --host 0.0.0.0 --port 8002
-      "
+    command:
+      - sh
+      - -c
+      - |
+        # 启动虚拟显示
+        Xvfb :99 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset > /dev/null 2>&1 &
+        sleep 2
+        
+        # 启动 VNC 服务器
+        x11vnc -display :99 -nopw -forever -rfbport 5901 -shared -noxdamage > /dev/null 2>&1 &
+        sleep 1
+        
+        # 启动 noVNC
+        websockify --web=/usr/share/novnc 0.0.0.0:6081 localhost:5901 > /dev/null 2>&1 &
+        
+        echo "========================================"
+        echo "Uploader services started:"
+        echo "  - API: http://0.0.0.0:8002"
+        echo "  - noVNC: http://localhost:6081"
+        echo "  - VNC: localhost:5901"
+        echo "========================================"
+        
+        # 启动主应用
+        exec uvicorn main:app --host 0.0.0.0 --port 8002
     healthcheck:
       test: [ "CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health', timeout=10).read()\"" ]
       interval: 30s
