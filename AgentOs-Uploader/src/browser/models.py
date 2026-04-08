@@ -40,7 +40,7 @@ class InteractiveBrowserSession:
     # 业务数据
     cookie_file: Optional[str] = None
     user_name: Optional[str] = None
-    account_id: Optional[str] = None  # 关联的数据库账号ID
+    account_id: Optional[int] = None  # 关联的数据库账号ID
     error_msg: Optional[str] = None
     
     # 元数据
