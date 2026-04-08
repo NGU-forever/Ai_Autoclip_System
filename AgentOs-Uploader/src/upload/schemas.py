@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 # --- 账号 ---
 class AccountResponse(BaseModel):
-    id: str
+    id: int
     platform: Literal["douyin", "tencent", "xhs"]
     user_name: str
     cookie_file: str
