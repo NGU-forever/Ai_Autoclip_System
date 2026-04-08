@@ -5,7 +5,7 @@ import uuid
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Header, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
 from src.tasks.publish import publish_video_task
@@ -41,51 +41,24 @@ router = APIRouter(prefix="/uploader", tags=["uploader"])
 
 logger = logging.getLogger(__name__)
 
-
 def get_uploader_service() -> UploaderService:
     return UploaderService()
 
-
-# --- 认证依赖 ---
-# DEV_MODE: 登录已移除 - uploader 作为独立微前端运行，不检查认证
-
-async def get_current_user(
-    x_user_id: Optional[str] = Header(None, alias="X-User-Id"),
-    x_user_role: Optional[str] = Header(None, alias="X-User-Role"),
-):
-    """返回 mock 用户，不检查认证"""
-    if x_user_id:
-        return {"id": x_user_id, "role": x_user_role or "user"}
-    return {"id": "admin", "role": "admin"}
-
-
-async def get_current_user_optional(
-    x_user_id: Optional[str] = Header(None, alias="X-User-Id"),
-    x_user_role: Optional[str] = Header(None, alias="X-User-Role"),
-    access_token: Optional[str] = Query(None, description="视频流token参数（仅用于video-stream兼容）"),
-):
-    """返回 mock 用户，不检查认证"""
-    if x_user_id:
-        return {"id": x_user_id, "role": x_user_role or "user"}
-    return {"id": "admin", "role": "admin"}
-
+# DEV_MODE: 登录已移除 - uploader 作为独立微前端运行，无需认证
 
 # --- 账号 ---
 @router.get("/accounts", response_model=List[AccountResponse])
 async def list_accounts(
-    _user: dict = Depends(get_current_user),
     service: UploaderService = Depends(get_uploader_service),
 ):
     """获取已配置的发布账号列表"""
     return await service.list_accounts()
-
 
 @router.post("/accounts", response_model=AccountResponse)
 async def add_account(
     platform: str = Form(..., description="平台：douyin 或 tencent"),
     user_name: str = Form(..., description="账号昵称/标识"),
     file: UploadFile = File(..., description="Cookie JSON 文件（Playwright storage_state 格式）"),
-    _user: dict = Depends(get_current_user),
     service: UploaderService = Depends(get_uploader_service),
 ):
     """
@@ -110,23 +83,19 @@ async def add_account(
         cookie_filename=cookie_filename,
     )
 
-
 @router.delete("/accounts/{account_id}")
 async def delete_account(
     account_id: str,
-    _user: dict = Depends(get_current_user),
     service: UploaderService = Depends(get_uploader_service),
 ):
     """删除账号"""
     await service.delete_account(account_id)
     return {"success": True}
 
-
 # --- 扫码登录 ---
 @router.post("/accounts/qr-login", response_model=QRLoginResponse)
 async def start_qr_login(
     platform: str = Query(..., description="平台：douyin 或 tencent"),
-    _user: dict = Depends(get_current_user),
 ):
     """
     启动扫码登录流程。
@@ -144,7 +113,6 @@ async def start_qr_login(
         message="请使用抖音/微信/小红书扫码登录",
         qr_url=f"/api/admin/uploader/accounts/qr-login/{task.id}/qr-code",
     )
-
 
 @router.get("/accounts/qr-login/{task_id}/qr-code")
 async def get_qr_code_image(
@@ -177,11 +145,9 @@ async def get_qr_code_image(
         headers={"Cache-Control": "no-cache, no-store, must-revalidate"}
     )
 
-
 @router.get("/accounts/qr-login/{task_id}/status", response_model=QRLoginStatusResponse)
 async def get_qr_login_status(
     task_id: str,
-    _user: dict = Depends(get_current_user),
     service: UploaderService = Depends(get_uploader_service),
 ):
     """
@@ -214,43 +180,35 @@ async def get_qr_login_status(
         
     return response
 
-
 @router.post("/accounts/qr-login/{task_id}/cancel")
 async def cancel_qr_login(
     task_id: str,
-    _user: dict = Depends(get_current_user),
 ):
     """取消扫码登录任务"""
     qr_service = get_qr_login_service()
     qr_service.cancel_task(task_id)
     return {"success": True}
 
-
 # --- 视频 ---
 @router.get("/videos", response_model=VideoListResponse)
 async def list_videos(
-    _user: dict = Depends(get_current_user),
     service: UploaderService = Depends(get_uploader_service),
 ):
     """获取待上传视频列表"""
     items = service.list_videos()
     return VideoListResponse(items=items, total=len(items))
 
-
 @router.post("/videos", response_model=VideoItem)
 async def upload_video(
     file: UploadFile = File(...),
-    _user: dict = Depends(get_current_user),
     service: UploaderService = Depends(get_uploader_service),
 ):
     """上传视频到待发布列表"""
     return service.save_uploaded_video(file)
 
-
 @router.get("/video-stream/{video_id:path}")
 async def stream_video(
     video_id: str,
-    _user: dict = Depends(get_current_user_optional),
 ):
     """按相对 storage 的路径流式返回视频（供前端预览），兼容旧版仅文件名。"""
     path = _resolve_publish_video_path(video_id)
@@ -264,11 +222,9 @@ async def stream_video(
         media = "video/quicktime"
     return FileResponse(path, media_type=media, filename=path.name)
 
-
 @router.post("/upload-cover", response_model=VideoItem)
 async def upload_cover(
     file: UploadFile = File(..., description="封面图片文件（jpg/png）"),
-    _user: dict = Depends(get_current_user),
 ):
     """
     上传封面图片（抖音/小红书）。
@@ -292,12 +248,10 @@ async def upload_cover(
         size_mb=round(dest.stat().st_size / (1024 * 1024), 2) if dest.exists() else None,
     )
 
-
 # --- 发布 ---
 @router.post("/publish", response_model=PublishResponse)
 async def publish(
     req: PublishRequest,
-    _user: dict = Depends(get_current_user),
     service: UploaderService = Depends(get_uploader_service),
 ):
     """
@@ -368,21 +322,17 @@ async def publish(
         task_id=task_id
     )
 
-
 @router.get("/publish/tasks", response_model=PublishTaskListResponse)
 async def list_publish_tasks(
-    _user: dict = Depends(get_current_user),
     service: UploaderService = Depends(get_uploader_service),
 ):
     """获取发布任务列表"""
     tasks = await service.list_publish_tasks()
     return PublishTaskListResponse(items=tasks, total=len(tasks))
 
-
 @router.get("/publish/tasks/{task_id}", response_model=PublishTaskItem)
 async def get_publish_task(
     task_id: str,
-    _user: dict = Depends(get_current_user),
     service: UploaderService = Depends(get_uploader_service),
 ):
     """查询发布任务详情"""
@@ -391,11 +341,9 @@ async def get_publish_task(
         raise HTTPException(status_code=404, detail="任务不存在")
     return PublishTaskItem(**task)
 
-
 @router.post("/publish/tasks/{task_id}/retry", response_model=PublishResponse)
 async def retry_publish_task(
     task_id: str,
-    _user: dict = Depends(get_current_user),
     service: UploaderService = Depends(get_uploader_service),
 ):
     """重试失败的发布任务（重新投递到 Celery 持久化队列）"""
@@ -460,19 +408,15 @@ async def retry_publish_task(
         task_id=task_id
     )
 
-
 # --- 平台信息 ---
 @router.get("/platforms")
-async def list_platforms(_user: dict = Depends(get_current_user)):
+async def list_platforms():
     """获取支持的发布平台列表"""
     return {"platforms": PLATFORMS}
-
-
 # --- 持久化扫码登录 ---
 @router.post("/accounts/qr-persistent/init", response_model=PersistentSessionInitResponse)
 async def init_persistent_session(
     platform: str = Query(..., description="平台：douyin 或 tencent"),
-    _user: dict = Depends(get_current_user),
 ):
     """
     初始化持久化扫码登录会话。
@@ -513,11 +457,9 @@ async def init_persistent_session(
     logger.info(f"Returning response for session {session.id}")
     return resp
 
-
 @router.post("/accounts/qr-persistent/{session_id}/heartbeat", response_model=PersistentSessionActionResponse)
 async def persistent_session_heartbeat(
     session_id: str,
-    _user: dict = Depends(get_current_user),
 ):
     """
     更新会话心跳，保持浏览器实例存活。
@@ -536,11 +478,9 @@ async def persistent_session_heartbeat(
         status=session.status.value if session else None,
     )
 
-
 @router.post("/accounts/qr-persistent/{session_id}/refresh-qr", response_model=PersistentSessionActionResponse)
 async def refresh_persistent_qr(
     session_id: str,
-    _user: dict = Depends(get_current_user),
 ):
     """
     刷新二维码（在同一浏览器会话中）。
@@ -559,20 +499,16 @@ async def refresh_persistent_qr(
         status=session.status.value if session else None,
     )
 
-
 @router.post("/accounts/qr-persistent/close-all", response_model=PersistentBatchCloseResponse)
 async def close_all_persistent_sessions(
-    _user: dict = Depends(get_current_user),
 ):
     """关闭所有持久化扫码浏览器会话（前端离开分发页等场景）。"""
     manager = await get_persistent_browser_manager()
     await manager.close_all_sessions()
     return PersistentBatchCloseResponse(success=True, message="已关闭所有持久化浏览器会话")
 
-
 @router.post("/accounts/qr-persistent/refresh-all", response_model=PersistentBatchRefreshResponse)
 async def refresh_all_persistent_sessions(
-    _user: dict = Depends(get_current_user),
 ):
     """依次刷新所有可刷新状态的持久化会话（不关闭浏览器，仅重载页面并更新二维码）。"""
     manager = await get_persistent_browser_manager()
@@ -587,7 +523,6 @@ async def refresh_all_persistent_sessions(
         skipped=result["skipped"],
         errors=result["errors"],
     )
-
 
 @router.get("/accounts/qr-persistent/{session_id}/qr-code")
 async def get_persistent_qr_code(
@@ -613,11 +548,9 @@ async def get_persistent_qr_code(
         headers={"Cache-Control": "no-cache, no-store, must-revalidate"}
     )
 
-
 @router.get("/accounts/qr-persistent/{session_id}/status", response_model=PersistentSessionStatusResponse)
 async def get_persistent_session_status(
     session_id: str,
-    _user: dict = Depends(get_current_user),
     service: UploaderService = Depends(get_uploader_service),
 ):
     """
@@ -650,11 +583,9 @@ async def get_persistent_session_status(
     
     return response
 
-
 @router.post("/accounts/qr-persistent/{session_id}/cancel")
 async def cancel_persistent_session(
     session_id: str,
-    _user: dict = Depends(get_current_user),
 ):
     """
     取消并关闭持久化会话，释放浏览器资源。
@@ -669,13 +600,11 @@ async def cancel_persistent_session(
     
     return {"success": True, "message": "会话已关闭"}
 
-
 # --- 交互式浏览器登录（手动上传改为浏览器登录）---
 
 @router.post("/accounts/interactive/init")
 async def init_interactive_browser(
     platform: str = Query(..., description="平台：douyin、tencent 或 xhs"),
-    _user: dict = Depends(get_current_user),
 ):
     """
     启动交互式浏览器会话。
@@ -716,11 +645,9 @@ async def init_interactive_browser(
         "message": "浏览器已启动，请在打开的窗口中完成登录",
     }
 
-
 @router.post("/accounts/interactive/{session_id}/close")
 async def close_interactive_browser(
     session_id: str,
-    _user: dict = Depends(get_current_user),
 ):
     """
     关闭交互式浏览器会话，释放浏览器资源。
@@ -737,11 +664,9 @@ async def close_interactive_browser(
     
     return {"success": True, "message": "浏览器已关闭"}
 
-
 @router.get("/accounts/interactive/{session_id}/status")
 async def get_interactive_browser_status(
     session_id: str,
-    _user: dict = Depends(get_current_user),
 ):
     """
     获取交互式浏览器会话状态。
@@ -758,10 +683,8 @@ async def get_interactive_browser_status(
     
     return session
 
-
 @router.get("/browser-view")
 async def get_browser_view_url(
-    _user: dict = Depends(get_current_user),
 ):
     """
     获取浏览器远程桌面访问链接。
