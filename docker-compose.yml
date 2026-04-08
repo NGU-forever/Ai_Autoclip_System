@@ -162,7 +162,8 @@ services:
       REDIS_URL: redis://redis:6379/0
       OPENSTORYLINE_PUBLIC_URL: ${OPENSTORYLINE_PUBLIC_URL:-http://localhost/clip}
       OPENSTORYLINE_INTERNAL_URL: http://storyline:7860
-      DEV_MODE: "false"
+      # 开发模式：true 时绕过登录认证
+      DEV_MODE: "${DEV_MODE:-true}"
     depends_on:
       db:
         condition: service_healthy

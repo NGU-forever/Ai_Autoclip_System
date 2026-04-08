@@ -224,9 +224,9 @@ const UserDashboard: React.FC = () => {
   const user = JSON.parse(localStorage.getItem('current_user') || '{}');
   const userName = user?.name || '创作者';
 
+  // DEV_MODE: 登录已移除 - 退出按钮刷新页面即可
   const handleLogout = () => {
-    clearAuth();
-    navigate('/login', { replace: true });
+    window.location.reload();
   };
 
   const features = [
@@ -427,11 +427,14 @@ const OpenStorylineMicroContainer: React.FC = () => (
 );
 
 // ========================================
-// 认证保护组件
+// DEV_MODE: 登录已移除 - 认证保护组件直接通过
 // ========================================
 const RequireAuth: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const token = localStorage.getItem('access_token');
-  if (!token) return <Navigate to="/login" replace />;
+  // 自动设置 mock token 和用户，避免子应用报错
+  if (!localStorage.getItem('access_token')) {
+    localStorage.setItem('access_token', 'dev-mode-mock-token');
+    localStorage.setItem('current_user', JSON.stringify({id: 'admin', name: '开发者'}));
+  }
   return children;
 };
 
@@ -448,17 +451,11 @@ const UploaderMicroContainer: React.FC = () => (
 const App: React.FC = () => {
   return (
     <Routes>
-      <Route path="/login" element={<UserLogin />} />
-      <Route
-        path="/distribute/*"
-        element={
-          <RequireAuth>
-            <UploaderMicroContainer />
-          </RequireAuth>
-        }
-      />
-      <Route path="/" element={<RequireAuth><UserDashboard /></RequireAuth>} />
-      <Route path="/clip/*" element={<RequireAuth><OpenStorylineMicroContainer /></RequireAuth>} />
+      {/* DEV_MODE: 登录已移除 - /login 重定向到首页 */}
+      <Route path="/login" element={<Navigate to="/" replace />} />
+      <Route path="/distribute/*" element={<UploaderMicroContainer />} />
+      <Route path="/" element={<UserDashboard />} />
+      <Route path="/clip/*" element={<OpenStorylineMicroContainer />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

@@ -6,6 +6,9 @@ class Settings(BaseSettings):
     project_name: str = "AgentOS Enterprise API"
     version: str = "1.0.0"
 
+    # 开发模式：绕过登录认证
+    dev_mode: bool = False
+
     database_url: str
     db_pool_min_conn: int = 5
     db_pool_max_conn: int = 50
