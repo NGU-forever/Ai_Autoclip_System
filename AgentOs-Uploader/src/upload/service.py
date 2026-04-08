@@ -199,7 +199,7 @@ class UploaderService:
     async def delete_account(self, account_id: str) -> bool:
         async with get_db_session() as session:
             repo = AccountRepository(session)
-            ok = await repo.deactivate(account_id)
+            ok = await repo.deactivate(int(account_id))
             if not ok:
                 raise NotFoundException(f"账号不存在: {account_id}")
             return True
@@ -207,7 +207,7 @@ class UploaderService:
     async def get_account(self, account_id: str) -> dict:
         async with get_db_session() as session:
             repo = AccountRepository(session)
-            account = await repo.get_by_id(account_id)
+            account = await repo.get_by_id(int(account_id))
             if not account:
                 raise NotFoundException(f"账号不存在: {account_id}")
             return {
@@ -266,7 +266,7 @@ class UploaderService:
             from src.db.models import Account
             result = await session.execute(
                 update(Account)
-                .where(Account.id == account_id)
+                .where(Account.id == int(account_id))
                 .values(is_active=(status_val != 0), updated_at=datetime.now())
             )
             if result.rowcount == 0:
