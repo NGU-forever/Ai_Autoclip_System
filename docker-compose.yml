@@ -59,6 +59,8 @@ services:
       UPLOADER_HEADLESS: "true"
       REDIS_URL: redis://redis:6379/0
       DISPLAY: ":99"
+      # DEV_MODE: 独立运行模式（不检查登录）
+      UPLOADER_INDEPENDENT: "true"
       # VNC 配置
       VNC_PORT: "5901"
       NOVNC_PORT: "6081"

@@ -47,28 +47,16 @@ def get_uploader_service() -> UploaderService:
 
 
 # --- 认证依赖 ---
-# 认证由 backend 服务统一处理，uploader 只从请求头获取用户信息
-# backend 会在转发请求时添加 X-User-Id 和 X-User-Role 头
+# DEV_MODE: 登录已移除 - uploader 作为独立微前端运行，不检查认证
 
 async def get_current_user(
     x_user_id: Optional[str] = Header(None, alias="X-User-Id"),
     x_user_role: Optional[str] = Header(None, alias="X-User-Role"),
 ):
-    """从请求头获取当前用户（由 backend 转发时添加）"""
+    """返回 mock 用户，不检查认证"""
     if x_user_id:
-        return {
-            "id": x_user_id,
-            "role": x_user_role or "user"
-        }
-    
-    # 启用独立模式时提供默认 admin 用户
-    if settings.uploader_independent:
-        return {"id": "admin", "role": "admin"}
-        
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="未提供用户认证信息"
-    )
+        return {"id": x_user_id, "role": x_user_role or "user"}
+    return {"id": "admin", "role": "admin"}
 
 
 async def get_current_user_optional(
@@ -76,21 +64,10 @@ async def get_current_user_optional(
     x_user_role: Optional[str] = Header(None, alias="X-User-Role"),
     access_token: Optional[str] = Query(None, description="视频流token参数（仅用于video-stream兼容）"),
 ):
-    """支持 header 或 query param 获取用户（用于视频流等特殊场景）"""
-    # 优先从 header 获取（backend 转发时会添加）
+    """返回 mock 用户，不检查认证"""
     if x_user_id:
         return {"id": x_user_id, "role": x_user_role or "user"}
-    
-    # 独立运行模式
-    if settings.uploader_independent:
-        return {"id": "admin", "role": "admin"}
-
-    # 如果没有 header，说明可能是直接访问，拒绝请求
-    # 注意：视频流现在也应该通过 backend 代理
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="未提供用户认证信息"
-    )
+    return {"id": "admin", "role": "admin"}
 
 
 # --- 账号 ---
