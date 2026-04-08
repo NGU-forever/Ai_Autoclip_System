@@ -1002,10 +1002,10 @@ const InteractiveBrowserLogin: React.FC<{
         </div>
       </div>
 
-      {/* noVNC 嵌入区域 */}
+      {/* noVNC 嵌入区域 - 使用 uploader 容器的 6081 端口 */}
       <div className="flex-1 relative">
         <iframe
-          src={`${window.location.protocol}//${window.location.hostname}:6080/vnc.html?autoconnect=true&resize=scale&quality=9&compression=2&shared=true`}
+          src={`${window.location.protocol}//${window.location.hostname}:6081/vnc.html?autoconnect=true&resize=scale&quality=9&compression=2&shared=true`}
           className="w-full h-full border-0"
           title="Browser"
           allow="fullscreen"
