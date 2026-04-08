@@ -31,7 +31,6 @@ class AccountRepository:
         cookie_file: str,
     ) -> Account:
         account = Account(
-            id=str(uuid.uuid4()),
             platform=platform,
             account_name=account_name,
             cookie_file=cookie_file,
@@ -40,7 +39,7 @@ class AccountRepository:
         await self._session.flush()
         return account
 
-    async def get_by_id(self, account_id: str) -> Optional[Account]:
+    async def get_by_id(self, account_id: int) -> Optional[Account]:
         result = await self._session.execute(
             select(Account).where(Account.id == account_id)
         )
@@ -67,7 +66,7 @@ class AccountRepository:
         )
         return result.scalar_one_or_none()
 
-    async def update_status(self, account_id: str, is_active: bool) -> bool:
+    async def update_status(self, account_id: int, is_active: bool) -> bool:
         """更新账号激活状态"""
         result = await self._session.execute(
             update(Account)
@@ -90,7 +89,7 @@ class AccountRepository:
         )
         return list(result.scalars().all())
 
-    async def deactivate(self, account_id: str) -> bool:
+    async def deactivate(self, account_id: int) -> bool:
         result = await self._session.execute(
             update(Account)
             .where(Account.id == account_id)
@@ -114,7 +113,6 @@ class AccountRepository:
             await self._session.flush()
             return existing
         new_account = Account(
-            id=str(uuid.uuid4()),
             platform=platform,
             account_name=account_name,
             cookie_file=cookie_file,
@@ -138,14 +136,13 @@ class TaskRepository:
         task_id: str,
         platform: str,
         video_id: str,
-        account_id: Optional[str] = None,
+        account_id: Optional[int] = None,
         title: Optional[str] = None,
         description: Optional[str] = None,
         tags: Optional[List[str]] = None,
         request_data: Optional[Dict[str, Any]] = None,
     ) -> UploaderTask:
         task = UploaderTask(
-            id=task_id,
             platform=platform,
             account_id=account_id,
             video_id=video_id,
