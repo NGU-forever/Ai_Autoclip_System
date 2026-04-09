@@ -538,7 +538,7 @@ class InteractiveBrowserManager:
         import platform
         
         # 如果明确设置了环境变量，优先使用
-        headless_env = os.environ.get('INTERACTIVE_HEADLESS', '').lower()
+        headless_env = os.environ.get('UPLOADER_HEADLESS', '').lower()
         if headless_env in ('true', '1', 'yes'):
             return True
         if headless_env in ('false', '0', 'no'):
