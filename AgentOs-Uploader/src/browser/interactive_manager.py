@@ -146,7 +146,9 @@ class InteractiveBrowserManager:
                             '--window-size=1400,900',
                             '--disable-blink-features=AutomationControlled',
                             '--no-sandbox',
-                            '--disable-setuid-sandbox'
+                            '--disable-setuid-sandbox',
+                            '--disable-gpu',
+                            '--disable-dev-shm-usage',
                         ]
                     )
                     if not headless:
@@ -163,7 +165,9 @@ class InteractiveBrowserManager:
                                 '--window-size=1400,900',
                                 '--disable-blink-features=AutomationControlled',
                                 '--no-sandbox',
-                                '--disable-setuid-sandbox'
+                                '--disable-setuid-sandbox',
+                                '--disable-gpu',
+                                '--disable-dev-shm-usage',
                             ]
                         )
                         session['error_msg'] = "当前运行在 headless 模式，浏览器窗口不可见"
@@ -530,56 +534,9 @@ class InteractiveBrowserManager:
         return True
     
     def _should_use_headless(self) -> bool:
-        """检测是否应该使用 headless 模式
-        
-        检测以下条件：
-        1. 环境变量 INTERACTIVE_HEADLESS=true/false（最高优先级）
-        2. macOS: 默认尝试非 headless（Playwright 原生支持）
-        3. Linux: 检测 DISPLAY 和 X Server
-        4. Windows: 默认尝试非 headless
-        """
-        import os
-        import platform
-        
-        # 如果明确设置了环境变量，优先使用
-        headless_env = os.environ.get('UPLOADER_HEADLESS', '').lower()
-        if headless_env in ('true', '1', 'yes'):
-            return True
-        if headless_env in ('false', '0', 'no'):
-            return False
-        
-        system = platform.system()
-        
-        # macOS: Playwright 原生支持，默认尝试弹窗
-        if system == 'Darwin':
-            return False
-        
-        # Windows: 默认尝试弹窗
-        if system == 'Windows':
-            return False
-        
-        # Linux: 检测 X Server
-        # 检测 DISPLAY 环境变量
-        display = os.environ.get('DISPLAY')
-        if not display:
-            # 没有 DISPLAY 变量，可能是 Docker/SSH 环境
-            return True
-        
-        # 尝试检测 X Server 是否真的可用
-        try:
-            import subprocess
-            result = subprocess.run(
-                ['xdpyinfo'],
-                capture_output=True,
-                timeout=2
-            )
-            if result.returncode != 0:
-                return True
-        except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
-            # xdpyinfo 不存在或执行失败，可能是无图形环境
-            return True
-        
-        return False
+        """检测是否应该使用 headless 模式"""
+        # 直接读取全局配置，保持与其它模块一致性
+        return settings.uploader_headless
     
     async def get_account_for_platform(self, platform: str) -> Optional[dict]:
         """获取平台的已登录账号"""
