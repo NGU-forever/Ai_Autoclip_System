@@ -17,7 +17,11 @@ DEFAULT_DESKTOP_CHROME_UA = (
     "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
 )
 
-CHROMIUM_EXTRA_LAUNCH_ARGS = ("--disable-dev-shm-usage",)
+CHROMIUM_EXTRA_LAUNCH_ARGS = (
+    "--disable-dev-shm-usage",
+    "--no-sandbox",
+    "--disable-setuid-sandbox"
+)
 
 
 def platform_label_for_error(platform: str) -> str:

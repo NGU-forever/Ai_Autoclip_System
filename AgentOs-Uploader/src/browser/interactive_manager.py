@@ -145,6 +145,8 @@ class InteractiveBrowserManager:
                         args=[
                             '--window-size=1400,900',
                             '--disable-blink-features=AutomationControlled',
+                            '--no-sandbox',
+                            '--disable-setuid-sandbox'
                         ]
                     )
                     if not headless:
@@ -160,6 +162,8 @@ class InteractiveBrowserManager:
                             args=[
                                 '--window-size=1400,900',
                                 '--disable-blink-features=AutomationControlled',
+                                '--no-sandbox',
+                                '--disable-setuid-sandbox'
                             ]
                         )
                         session['error_msg'] = "当前运行在 headless 模式，浏览器窗口不可见"
