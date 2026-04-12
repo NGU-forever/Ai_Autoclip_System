@@ -49,9 +49,9 @@ services:
     restart: unless-stopped
     ports:
       - "8002:8002"
-      # 交互式浏览器登录的 noVNC 端口（与 web 服务的 6080 区分）
-      - "6081:6081"
-      - "5901:5901"
+      # 交互式浏览器登录的 noVNC 端口
+      - "6080:6080"
+      - "5900:5900"
     env_file:
       - .env
     environment:
@@ -62,8 +62,8 @@ services:
       # DEV_MODE: 独立运行模式（不检查登录）
       UPLOADER_INDEPENDENT: "true"
       # VNC 配置
-      VNC_PORT: "5901"
-      NOVNC_PORT: "6081"
+      VNC_PORT: "5900"
+      NOVNC_PORT: "6080"
     volumes:
       - ./storage:/app/storage
     depends_on:
@@ -75,22 +75,39 @@ services:
       - sh
       - -c
       - |
+        ln -sf /usr/share/novnc/vnc.html /usr/share/novnc/index.html
+        
         # 启动虚拟显示
+        echo "=== Starting Xvfb ==="
         Xvfb :99 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset > /dev/null 2>&1 &
-        sleep 2
+        
+        echo "Waiting for Xvfb to be ready..."
+        for i in $$(seq 1 30); do
+          if [ -e /tmp/.X11-unix/X99 ]; then
+            echo "Xvfb is ready (took $${i}s)"
+            break
+          fi
+          sleep 1
+        done
+        
+        echo "=== Starting Fluxbox ==="
+        fluxbox > /dev/null 2>&1 &
+        sleep 0.5
         
         # 启动 VNC 服务器
-        x11vnc -display :99 -nopw -forever -rfbport 5901 -shared -noxdamage > /dev/null 2>&1 &
-        sleep 1
+        echo "=== Starting x11vnc ==="
+        x11vnc -display :99 -nopw -forever -rfbport 5900 -shared -noxdamage -xkb > /dev/null 2>&1 &
+        sleep 0.5
         
         # 启动 noVNC
-        websockify --web=/usr/share/novnc 0.0.0.0:6081 localhost:5901 > /dev/null 2>&1 &
+        echo "=== Starting noVNC ==="
+        websockify --web=/usr/share/novnc 0.0.0.0:6080 localhost:5900 > /dev/null 2>&1 &
         
         echo "========================================"
         echo "Uploader services started:"
         echo "  - API: http://0.0.0.0:8002"
-        echo "  - noVNC: http://localhost:6081"
-        echo "  - VNC: localhost:5901"
+        echo "  - noVNC: http://localhost:6080"
+        echo "  - VNC: localhost:5900"
         echo "========================================"
         
         # 启动主应用
