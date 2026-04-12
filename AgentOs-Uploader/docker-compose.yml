@@ -17,7 +17,7 @@ services:
       retries: 5
 
   redis:
-    image: redis:7-alpine
+    image: redis:alpine
     restart: unless-stopped
     ports:
       - "63799:6379"
@@ -28,16 +28,26 @@ services:
       dockerfile: Dockerfile
     command: >
       sh -c '
+        ln -sf /usr/share/novnc/vnc.html /usr/share/novnc/index.html &&
         echo "=== Starting Xvfb ===" &&
         Xvfb :99 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset &
         export DISPLAY=:99 &&
-        sleep 1 &&
+        echo "Waiting for Xvfb to be ready..." &&
+        for i in $(seq 1 30); do
+          if [ -e /tmp/.X11-unix/X99 ]; then
+            echo "Xvfb is ready (took $${i}s)";
+            break;
+          fi;
+          sleep 1;
+        done &&
         echo "=== Starting Fluxbox ===" &&
         fluxbox &
+        sleep 0.5 &&
         echo "=== Starting x11vnc ===" &&
-        x11vnc -display :99 -nopw -forever -shared -rfbport 5900 &
+        x11vnc -display :99 -nopw -forever -shared -rfbport 5900 -xkb &
+        sleep 0.5 &&
         echo "=== Starting noVNC ===" &&
-        websockify --web=/usr/share/novnc --cert=self.pem --key=self.pem 6080 localhost:5900 &
+        websockify --web=/usr/share/novnc 6080 localhost:5900 &
         echo "=== Starting Uploader API ===" &&
         uvicorn main:app --host 0.0.0.0 --port 8002
       '
