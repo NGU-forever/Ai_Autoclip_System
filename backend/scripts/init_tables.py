@@ -38,6 +38,23 @@ def init_tables():
     CREATE INDEX IF NOT EXISTS idx_users_email     ON users (email);
     CREATE INDEX IF NOT EXISTS idx_users_role      ON users (role);
     CREATE INDEX IF NOT EXISTS idx_users_status    ON users (status);
+    -- 修复 accounts 表关联的问题：如果之前意外去掉了 SERIAL 的 auto increment 属性，自动修复它
+    DO $$
+    BEGIN
+        IF EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'accounts') THEN
+            IF NOT EXISTS (
+                SELECT FROM information_schema.columns 
+                WHERE table_name = 'accounts' AND column_name = 'id' AND column_default IS NOT NULL
+            ) THEN
+                CREATE SEQUENCE IF NOT EXISTS accounts_id_seq;
+                -- 自动寻找已有的最大ID，防止主键冲突
+                PERFORM setval('accounts_id_seq', COALESCE((SELECT MAX(id) FROM accounts), 0) + 1, false);
+                ALTER TABLE accounts ALTER COLUMN id SET DEFAULT nextval('accounts_id_seq');
+                ALTER SEQUENCE accounts_id_seq OWNED BY accounts.id;
+            END IF;
+        END IF;
+    END
+    $$;
     """
     
     try:
