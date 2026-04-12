@@ -55,7 +55,8 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-b2b_user}:${POSTGRES_PASSWORD:-b2b_password}@db:5432/${POSTGRES_DB:-b2b_db}
-      UPLOADER_HEADLESS: "true"
+      # 交互式登录必须关闭 headless 模式才能在 VNC 中看到浏览器
+      UPLOADER_HEADLESS: "false"
       REDIS_URL: redis://redis:6379/0
       DISPLAY: ":99"
       # DEV_MODE: 独立运行模式（不检查登录）
