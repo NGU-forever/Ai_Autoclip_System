@@ -1,7 +1,6 @@
 # ============================================================
 # docker-compose.yml — 默认面向生产/客户私有化部署
 # 启动: docker compose up -d --build
-# 本地后端热重载: 叠加 docker-compose.dev.yml（见该文件说明）
 # ============================================================
 
 services:
@@ -222,29 +221,6 @@ services:
     depends_on:
       web:
         condition: service_healthy
-
-  # ----------------------------------------------------------
-  # n8n: Workflow Automation Node
-  # ----------------------------------------------------------
-  # n8n:
-  #   image: docker.n8n.io/n8nio/n8n
-  #   restart: always
-  #   ports:
-  #     - "5678:5678"
-  #   environment:
-  #     - N8N_HOST=${N8N_HOST:-localhost}
-  #     - N8N_PORT=${N8N_PORT:-5678}
-  #     - N8N_PROTOCOL=${N8N_PROTOCOL:-http}
-  #     - NODE_ENV=production
-  #     - WEBHOOK_URL=${WEBHOOK_URL:-http://localhost:5678/}
-  #     - GENERIC_TIMEZONE=${GENERIC_TIMEZONE:-Asia/Shanghai}
-  #     - N8N_BLOCK_SVG_XSS_FOR_USER_CONTENT=true
-  #     - N8N_USE_BEHIND_PROXY=true
-  #   volumes:
-  #     - n8n_data:/home/node/.n8n
-  #   depends_on:
-  #     - db
-  #     - redis
 
   # ----------------------------------------------------------
   # user-frontend: React (Vite) user dashboard on port 80
