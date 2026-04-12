@@ -60,6 +60,7 @@ class InteractiveBrowserManager:
             cls._instance = super(InteractiveBrowserManager, cls).__new__(cls)
             cls._instance.sessions: Dict[str, dict] = {}
             cls._instance._cleanup_task: Optional[asyncio.Task] = None
+            cls._instance._started: bool = False
         return cls._instance
     
     @classmethod
@@ -68,7 +69,10 @@ class InteractiveBrowserManager:
         return cls()
     
     async def start(self):
-        """启动管理器"""
+        """启动管理器（幂等，只在首次调用时打印日志）"""
+        if self._started:
+            return
+        self._started = True
         if self._cleanup_task is None or self._cleanup_task.done():
             self._cleanup_task = asyncio.create_task(self._cleanup_loop())
         logger.info("InteractiveBrowserManager started")
@@ -98,6 +102,10 @@ class InteractiveBrowserManager:
         Returns:
             会话信息字典
         """
+        nav_task = None
+        session_id = None
+        session = None
+        
         async with self._lock:
             # 检查是否已有同平台的活跃会话或正在初始化的会话
             existing_sessions = [
@@ -124,12 +132,12 @@ class InteractiveBrowserManager:
                 'created_at': time.time(),
                 'last_heartbeat': time.time(),
                 'login_detected': False,
+                '_navigate_task': None,
             }
             
             self.sessions[session_id] = session
             
             # 启动浏览器（在锁内完成初始化，防止竞态条件）
-            # 只启动到浏览器创建完成，导航作为后台任务
             try:
                 playwright = await async_playwright().start()
                 session['_playwright'] = playwright
@@ -143,7 +151,8 @@ class InteractiveBrowserManager:
                     browser = await playwright.chromium.launch(
                         headless=headless,
                         args=[
-                            '--window-size=1400,900',
+                            '--start-maximized',
+                            '--window-size=1920,1080',
                             '--disable-blink-features=AutomationControlled',
                             '--no-sandbox',
                             '--disable-setuid-sandbox',
@@ -162,7 +171,8 @@ class InteractiveBrowserManager:
                         browser = await playwright.chromium.launch(
                             headless=True,
                             args=[
-                                '--window-size=1400,900',
+                                '--start-maximized',
+                                '--window-size=1920,1080',
                                 '--disable-blink-features=AutomationControlled',
                                 '--no-sandbox',
                                 '--disable-setuid-sandbox',
@@ -178,7 +188,7 @@ class InteractiveBrowserManager:
                 
                 # 创建上下文
                 context = await browser.new_context(
-                    viewport={'width': 1400, 'height': 900},
+                    no_viewport=True,
                     locale='zh-CN',
                     user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
                 )
@@ -188,6 +198,10 @@ class InteractiveBrowserManager:
                 session['page'] = page
                 
                 logger.info(f"Created interactive browser session {session_id} for {platform}")
+                
+                # 在锁内创建导航任务（但不等待），保存 task 引用用于 close 时 cancel
+                nav_task = asyncio.create_task(self._navigate_and_monitor(session, existing_account))
+                session['_navigate_task'] = nav_task
                 
             except Exception as e:
                 logger.error(f"Failed to create browser for session {session_id}: {e}")
@@ -205,18 +219,37 @@ class InteractiveBrowserManager:
                     'error': error_msg,
                 }
         
-        # 锁外执行导航（可能耗时较长）
-        asyncio.create_task(self._navigate_and_monitor(session, existing_account))
+        # 锁外等待导航完成（带超时保护，避免阻塞过久）
+        if nav_task:
+            try:
+                await asyncio.wait_for(asyncio.shield(nav_task), timeout=30)
+            except asyncio.TimeoutError:
+                logger.warning(f"Navigation timeout for session {session_id}, continuing in background")
+                # 超时不算失败，导航 task 继续在后台运行
+                if session.get('status') == 'initializing':
+                    session['status'] = 'waiting_login'
+            except asyncio.CancelledError:
+                logger.debug(f"Navigation cancelled for session {session_id}")
+            except Exception as e:
+                # navigate 内部已处理错误，这里只做日志
+                logger.debug(f"Navigation task finished with error for session {session_id}: {e}")
         
+        # 返回当前状态
+        current_status = session.get('status', 'initializing') if session else 'failed'
         return {
             'sessionId': session_id,
             'platform': platform,
-            'status': 'initializing',
+            'status': current_status,
         }
     
     async def _navigate_and_monitor(self, session: dict, existing_account: Optional[dict] = None):
         """导航到目标页面并启动登录检测"""
         try:
+            # 检查 session 是否已被关闭（防止竞态条件）
+            if session.get('status') == 'closed':
+                logger.debug(f"Session {session['id']} already closed, skipping navigation")
+                return
+            
             page = session.get('page')
             if not page or page.is_closed():
                 logger.warning(f"Session {session['id']} page already closed before navigation")
@@ -235,6 +268,10 @@ class InteractiveBrowserManager:
             if not url:
                 raise ValueError(f"Unknown platform: {session['platform']}")
             
+            # 再次检查 session 状态（导航前的最后一道防线）
+            if session.get('status') == 'closed':
+                return
+            
             await page.goto(url, wait_until="domcontentloaded", timeout=60000)
             await asyncio.sleep(2)
             
@@ -244,11 +281,17 @@ class InteractiveBrowserManager:
             if not existing_account:
                 asyncio.create_task(self._login_detect_loop(session))
                 
+        except asyncio.CancelledError:
+            logger.debug(f"Navigation cancelled for session {session['id']}")
+            raise  # 重新抛出以让 await 正确处理
         except Exception as e:
+            # 如果 session 已被关闭，这是预期行为，不要报错
+            if session.get('status') == 'closed':
+                logger.debug(f"Navigation stopped for closed session {session['id']}: {e}")
+                return
             logger.error(f"Failed to navigate for session {session['id']}: {e}")
-            if session.get('status') != 'closed':
-                session['status'] = 'failed'
-                session['error_msg'] = str(e)
+            session['status'] = 'failed'
+            session['error_msg'] = str(e)
     
     async def _login_detect_loop(self, session: dict):
         """登录检测循环"""
@@ -439,7 +482,17 @@ class InteractiveBrowserManager:
         
         logger.info(f"Closing interactive browser session {session_id}")
         
+        # 先标记为 closed，让正在运行的导航/检测循环感知到
         session['status'] = 'closed'
+        
+        # 取消正在进行的导航任务
+        nav_task = session.get('_navigate_task')
+        if nav_task and not nav_task.done():
+            nav_task.cancel()
+            try:
+                await nav_task
+            except (asyncio.CancelledError, Exception):
+                pass
         
         # 关闭页面
         try:
