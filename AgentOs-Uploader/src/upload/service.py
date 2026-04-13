@@ -60,6 +60,20 @@ def _safe_video_path_under_storage(video_id: str) -> Path:
     return resolved
 
 
+def _safe_legacy_video_id(video_id: str) -> Path:
+    """
+    兼容旧版 file_name / 相对路径输入时的安全校验：
+    - 禁止绝对路径
+    - 禁止路径回溯
+    """
+    if not video_id or video_id.strip() != video_id:
+        raise NotFoundException("视频不存在")
+    rel = Path(video_id)
+    if rel.is_absolute() or ".." in rel.parts:
+        raise NotFoundException("视频不存在")
+    return rel
+
+
 def _resolve_publish_video_path(video_id: str) -> Path:
     """列表返回的相对路径，或兼容旧版仅文件名（先 uploader/videos 再 exports）。"""
     # 新格式：相对 storage 的路径
@@ -69,12 +83,26 @@ def _resolve_publish_video_path(video_id: str) -> Path:
             return p
     except NotFoundException:
         pass
-    flat_uploader = Path(settings.uploader_video_path) / video_id
-    if flat_uploader.is_file() and ".." not in Path(video_id).parts:
-        return flat_uploader.resolve()
-    flat_exports = Path(settings.exports_path) / video_id
-    if flat_exports.is_file() and ".." not in Path(video_id).parts:
-        return flat_exports.resolve()
+
+    rel_legacy = _safe_legacy_video_id(video_id)
+    uploader_root = Path(settings.uploader_video_path).resolve()
+    flat_uploader = (uploader_root / rel_legacy).resolve()
+    if flat_uploader.is_file():
+        try:
+            flat_uploader.relative_to(uploader_root)
+            return flat_uploader
+        except ValueError:
+            pass
+
+    exports_root = Path(settings.exports_path).resolve()
+    flat_exports = (exports_root / rel_legacy).resolve()
+    if flat_exports.is_file():
+        try:
+            flat_exports.relative_to(exports_root)
+            return flat_exports
+        except ValueError:
+            pass
+
     raise NotFoundException(f"视频不存在: {video_id}")
 
 
@@ -119,17 +147,16 @@ class UploaderService:
         """按 cookie 文件名查找已登记账号（扫码/持久化会话复用同一文件时需返回已有记录）。"""
         async with get_db_session() as session:
             repo = AccountRepository(session)
-            accounts = await repo.list_all()
-            for a in accounts:
-                if a.cookie_file == cookie_filename:
-                    return AccountResponse(
-                        id=a.id,
-                        platform=a.platform,
-                        user_name=a.account_name,
-                        cookie_file=a.cookie_file,
-                        status=1 if a.is_active else 0,
-                    )
-            return None
+            account = await repo.get_by_cookie_file(cookie_filename)
+            if not account:
+                return None
+            return AccountResponse(
+                id=account.id,
+                platform=account.platform,
+                user_name=account.account_name,
+                cookie_file=account.cookie_file,
+                status=1 if account.is_active else 0,
+            )
 
     async def add_account(
         self,

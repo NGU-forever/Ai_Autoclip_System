@@ -66,6 +66,18 @@ class AccountRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_by_cookie_file(self, cookie_file: str) -> Optional[Account]:
+        """根据 cookie 文件名查找账号（仅活跃账号）。"""
+        result = await self._session.execute(
+            select(Account)
+            .where(
+                Account.cookie_file == cookie_file,
+                Account.is_active.is_(True),
+            )
+            .order_by(Account.updated_at.desc(), Account.id.desc())
+        )
+        return result.scalars().first()
+
     async def update_status(self, account_id: int, is_active: bool) -> bool:
         """更新账号激活状态"""
         result = await self._session.execute(
