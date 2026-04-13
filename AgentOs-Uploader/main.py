@@ -39,10 +39,9 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
             response = await call_next(request)
             response.headers["x-request-id"] = request_id
             return response
-        except Exception as e:
+        except Exception as exc:
             # 兼容 BaseHTTPMiddleware 在某些版本中无法正确处理异常响应的问题
-            from src.exceptions import global_exception_handler
-            return await global_exception_handler(request, e)
+            return await global_exception_handler(request, exc)
 
 
 # ─── 生命周期 ─────────────────────────────────────────────────────────────────
@@ -151,10 +150,20 @@ app = FastAPI(
 )
 
 app.add_middleware(RequestIdMiddleware)
+cors_origins = settings.cors_origins_list
+cors_allow_credentials = settings.cors_allow_credentials
+if not cors_origins:
+    logger.warning("CORS origins empty, fallback to wildcard without credentials.")
+    cors_origins = ["*"]
+    cors_allow_credentials = False
+elif "*" in cors_origins and cors_allow_credentials:
+    logger.warning("CORS misconfigured: wildcard with credentials is invalid; credentials disabled.")
+    cors_allow_credentials = False
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=cors_origins,
+    allow_credentials=cors_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -213,7 +222,7 @@ if _STATIC_ROOT.is_dir():
         if exc.status_code == 404 and not request.url.path.startswith("/api/"):
             index = _STATIC_ROOT / "index.html"
             if index.is_file():
-                return FileResponse(index)
+                return FileResponse(index, headers={"Cache-Control": "no-store"})
         return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
 
     # 挂载 SPA 根目录（必须在所有路由和 exception_handler 注册之后）
