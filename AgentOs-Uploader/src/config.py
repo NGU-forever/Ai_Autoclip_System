@@ -23,6 +23,15 @@ class Settings(BaseSettings):
 
     redis_url: str = "redis://localhost:6379/0"
 
+    # CORS：凭证模式下必须使用显式域名，不能与 "*" 同时使用
+    cors_allow_origins: str = (
+        "http://localhost:3000,"
+        "http://127.0.0.1:3000,"
+        "http://localhost:5173,"
+        "http://127.0.0.1:5173"
+    )
+    cors_allow_credentials: bool = True
+
     openstoryline_public_url: str = "http://localhost:7860"
     openstoryline_internal_url: str = "http://storyline:7860"
 
@@ -105,6 +114,10 @@ class Settings(BaseSettings):
 
     def get_platform_cookies_path(self, platform: str) -> str:
         return os.path.join(self.uploader_cookies_path, platform)
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [o.strip().rstrip("/") for o in self.cors_allow_origins.split(",") if o.strip()]
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
