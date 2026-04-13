@@ -1,101 +1,268 @@
-/* Legacy OpenStoryline 自带 /static/style.css；此处仅保证壳层不塌陷 */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+/* Base Reset & Variables */
+:root {
+  --os-bg: #0b0b0c;
+  --os-surface: rgba(24, 24, 27, 0.6);
+  --os-surface-hover: rgba(39, 39, 42, 0.8);
+  --os-border: rgba(255, 255, 255, 0.08);
+  --os-text: #f4f4f5;
+  --os-text-muted: #a1a1aa;
+  --os-primary: #3b82f6;
+  --os-primary-text: #ffffff;
+}
+
 html,
 body,
 #root {
   height: 100%;
   margin: 0;
+  padding: 0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  background-color: var(--os-bg);
+  color: var(--os-text);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
 }
 
-.openstoryline-app-root {
+/* Base Layout */
+.os-layout {
+  min-height: 100vh;
   display: flex;
   flex-direction: column;
-  height: 100%;
-  min-height: 100%;
-  background: #0b0b0c;
-  color: #f4f4f5;
+  background-color: var(--os-bg);
 }
 
-.openstoryline-app-chrome {
-  flex-shrink: 0;
-  height: 56px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(12, 12, 14, 0.72);
-  backdrop-filter: blur(12px);
+.os-main {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
-.openstoryline-app-chrome-inner {
-  max-width: 80rem;
-  margin: 0 auto;
-  padding: 0 1.25rem;
-  height: 100%;
+/* Glassmorphism Header */
+.os-header {
+  height: 64px;
+  background: rgba(12, 12, 14, 0.65);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--os-border);
+  position: sticky;
+  top: 0;
+  z-index: 40;
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  justify-content: space-between;
+  padding: 0 1.5rem;
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
 }
 
-.openstoryline-app-back {
-  display: inline-flex;
+.os-header-left, .os-header-right {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.os-divider {
+  width: 1px;
+  height: 24px;
+  background-color: var(--os-border);
+  margin: 0 0.5rem;
+}
+
+/* Buttons and Links */
+.os-back-link {
+  display: flex;
   align-items: center;
   gap: 0.5rem;
-  color: #a1a1aa;
+  color: var(--os-text-muted);
   text-decoration: none;
   font-size: 0.875rem;
+  padding: 0.25rem;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  outline: none;
 }
 
-.openstoryline-app-back:hover {
-  color: #fafafa;
+.os-back-link:hover, .os-back-link:focus-visible {
+  color: var(--os-text);
 }
 
-.openstoryline-app-back-icon {
-  width: 2rem;
-  height: 2rem;
-  border-radius: 0.375rem;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+.os-back-link:focus-visible {
+  box-shadow: 0 0 0 2px var(--os-primary);
 }
 
-.openstoryline-app-chrome-divider {
-  width: 1px;
-  height: 1.5rem;
-  background: rgba(255, 255, 255, 0.1);
+.os-icon-box {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--os-surface);
+  border: 1px solid var(--os-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-.openstoryline-app-title {
+.os-back-link:hover .os-icon-box {
+  background: var(--os-surface-hover);
+  transform: scale(1.05);
+}
+
+.os-primary-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #2563eb, #3b82f6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+  color: var(--os-primary-text);
+}
+
+.os-title-block h1 {
   margin: 0;
-  font-size: 1rem;
-  font-weight: 600;
+  font-size: 1.125rem;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  color: var(--os-text);
 }
 
-.openstoryline-app-chrome-spacer {
-  flex: 1;
+.os-title-block p {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--os-text-muted);
 }
 
-.openstoryline-app-external {
-  padding: 0.5rem 0.75rem;
-  border-radius: 0.375rem;
-  font-size: 0.875rem;
-  color: #a1a1aa;
+.os-external-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  background: var(--os-surface);
+  border: 1px solid var(--os-border);
+  color: var(--os-text-muted);
   text-decoration: none;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  outline: none;
 }
 
-.openstoryline-app-external:hover {
-  color: #fafafa;
-  background: rgba(255, 255, 255, 0.08);
+.os-external-btn:hover {
+  background: var(--os-surface-hover);
+  color: var(--os-text);
+  border-color: rgba(255, 255, 255, 0.15);
+  transform: translateY(-1px);
 }
 
-.openstoryline-app-main {
+.os-external-btn:active {
+  transform: translateY(0);
+}
+
+.os-external-btn:focus-visible {
+  box-shadow: 0 0 0 2px var(--os-primary);
+}
+
+/* Loading Spinner */
+.os-loading-wrapper {
   flex: 1;
-  min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
 }
 
+.os-spinner {
+  width: 48px;
+  height: 48px;
+  border: 3px solid var(--os-surface);
+  border-top-color: var(--os-primary);
+  border-radius: 50%;
+  animation: os-spin 1s linear infinite;
+}
+
+@keyframes os-spin {
+  to { transform: rotate(360deg); }
+}
+
+.os-loading-text {
+  color: var(--os-text-muted);
+  font-size: 0.875rem;
+  animation: os-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes os-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* Error State */
+.os-error-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  text-align: center;
+  padding: 2rem;
+}
+
+.os-error-icon {
+  color: #ef4444;
+  margin-bottom: 0.5rem;
+}
+
+.os-error-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.os-error-desc {
+  color: var(--os-text-muted);
+  font-size: 0.875rem;
+  margin: 0;
+  max-width: 400px;
+}
+
+.os-retry-btn {
+  margin-top: 1rem;
+  padding: 0.5rem 1.5rem;
+  background: var(--os-primary);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+}
+
+.os-retry-btn:hover {
+  background: #2563eb;
+}
+
+.os-retry-btn:active {
+  transform: scale(0.98);
+}
+
+/* Legacy Application Container */
 .openstoryline-legacy-host {
   width: 100%;
+  height: 100%;
   flex: 1;
   min-height: 0;
   overflow: auto;
+  opacity: 0;
+  animation: os-fade-in 0.5s ease forwards;
+}
+
+@keyframes os-fade-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
