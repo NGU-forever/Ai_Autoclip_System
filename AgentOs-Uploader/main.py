@@ -94,30 +94,13 @@ async def lifespan(app: FastAPI):
         from src.db import init_db
         await init_db()
         logger.info("Database initialized.")
-    except Exception as exc:
-        logger.warning("DB init failed (will use JSON fallback): %s", exc)
+    except Exception:
+        logger.exception("Database initialization failed")
+        raise
 
-    # Task Reconciler: 将上次异常退出遗留的 running 任务重置为 failed
-    try:
-        from src.db import AsyncSessionLocal, TaskRepository
-        async with AsyncSessionLocal() as session:
-            repo = TaskRepository(session)
-            stale = await repo.reconcile_stale()
-            await session.commit()
-        if stale:
-            logger.warning(
-                "DB Reconciler 重置了 %d 个孤儿任务，用户可通过 /retry 重新发布。", stale
-            )
-    except Exception as exc:
-        # JSON 回退：兼容旧版 JSON 持久化
-        logger.warning("DB reconciler failed, falling back to JSON: %s", exc)
-        try:
-            from src.upload.service import UploaderService
-            stale_json = UploaderService().reconcile_stale_tasks()
-            if stale_json:
-                logger.warning("JSON Reconciler 重置了 %d 个孤儿任务。", stale_json)
-        except Exception as exc2:
-            logger.warning("JSON reconciler also failed: %s", exc2)
+    # API restarts cannot establish whether a separate Worker is still publishing.
+    # Keep running tasks unchanged; reconcile only after stopping all Workers and
+    # verifying the platform outcome, otherwise manual retry can duplicate a post.
 
     yield
     logger.info("Shutting down uploader service...")
@@ -231,3 +214,4 @@ else:
     logger.warning(
         "SPA build directory not found at %s. Frontend will not be served.", _STATIC_ROOT
     )
+

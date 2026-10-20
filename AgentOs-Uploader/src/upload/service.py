@@ -417,7 +417,7 @@ class UploaderService:
         if platform == "douyin":
             if not await douyin_setup(account_file, handle=False):
                 logger.error("Douyin publish aborted: cookie missing or invalid (%s)", account_file)
-                return
+                raise ValueError("登录已失效，请重新扫码登录")
             app = DouYinVideo(
                 title, video_path, tags, publish_datetime, account_file,
                 thumbnail_path=thumbnail_path or "",
@@ -427,7 +427,7 @@ class UploaderService:
         elif platform == "tencent":
             if not await weixin_setup(account_file, handle=False):
                 logger.error("Tencent publish aborted: cookie missing or invalid (%s)", account_file)
-                return
+                raise ValueError("登录已失效，请重新扫码登录")
             app = TencentVideo(
                 title, video_path, tags, publish_datetime, account_file,
                 category=category or TencentZoneTypes.LIFESTYLE.value,
@@ -438,7 +438,7 @@ class UploaderService:
         elif platform == "xhs":
             if not await xiaohongshu_setup(account_file, handle=False):
                 logger.error("XHS publish aborted: cookie missing or invalid (%s)", account_file)
-                return
+                raise ValueError("登录已失效，请重新扫码登录")
             xhs_cover = cover_path or thumbnail_path or ""
             app = XiaoHongShuVideo(
                 title,
@@ -461,7 +461,7 @@ class UploaderService:
                 task_id=task_data["task_id"],
                 platform=task_data["platform"],
                 video_id=task_data.get("video_id", ""),
-                account_id=task_data.get("account_id"),
+                account_id=int(task_data["account_id"]) if task_data.get("account_id") is not None else None,
                 title=task_data.get("title"),
                 tags=task_data.get("tags", []),
                 request_data=task_data.get("request_data", {}),
@@ -471,6 +471,10 @@ class UploaderService:
         async with get_db_session() as session:
             repo = TaskRepository(session)
             await repo.update_status(task_id, status, error_msg)
+
+    async def reserve_publish_retry(self, task_id: str, expected_attempt: int) -> bool:
+        async with get_db_session() as session:
+            return await TaskRepository(session).reserve_retry(task_id, expected_attempt)
 
     async def get_publish_task(self, task_id: str) -> Optional[dict]:
         async with get_db_session() as session:
@@ -523,14 +527,18 @@ class UploaderService:
         publish_date: Optional[str] = None,
         short_title: Optional[str] = None,
         declare_original: bool = False,
+        attempt: int = 0,
     ):
-        acc = await self.get_account(account_id)
-        cookie_file = self._get_cookie_file_path(acc)
-
-        video_path = _resolve_publish_video_path(video_id)
-
-        await self.update_publish_task_status(task_id, "running")
+        # Commit the atomic claim before any browser/platform side effect.
+        async with get_db_session() as session:
+            claimed = await TaskRepository(session).claim(task_id, attempt)
+        if not claimed:
+            logger.warning("Skipping missing, duplicate or stale publish delivery: %s", task_id)
+            return
         try:
+            acc = await self.get_account(account_id)
+            cookie_file = self._get_cookie_file_path(acc)
+            video_path = _resolve_publish_video_path(video_id)
             await self._run_publish(
                 platform=platform,
                 account_file=str(cookie_file),
@@ -549,7 +557,10 @@ class UploaderService:
                 short_title=short_title,
                 declare_original=declare_original,
             )
-            await self.update_publish_task_status(task_id, "success")
         except Exception as e:
             logger.exception(f"Publish task {task_id} failed: {e}")
             await self.update_publish_task_status(task_id, "failed", error_msg=str(e))
+            return
+        # A persistence failure after platform success must not mark the task failed:
+        # keep it running for manual outcome verification instead of enabling retry.
+        await self.update_publish_task_status(task_id, "success")
