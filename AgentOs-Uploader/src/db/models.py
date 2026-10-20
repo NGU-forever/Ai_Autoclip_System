@@ -9,6 +9,7 @@ from typing import Optional
 
 from sqlalchemy import (
     Column,
+    Index,
     DateTime,
     ForeignKey,
     Integer,
@@ -55,6 +56,9 @@ class UploaderTask(Base):
     __tablename__ = "uploader_tasks"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    __table_args__ = (Index("ux_uploader_tasks_task_id", "task_id", unique=True),)
+
+    task_id = Column(String(32), nullable=True)  # UUID; NULL for legacy rows
     platform = Column(String(32), nullable=False, index=True)
     account_id = Column(Integer, ForeignKey("accounts.id"), nullable=True, index=True)
     video_id = Column(String(512), nullable=False)
@@ -83,8 +87,11 @@ class UploaderTask(Base):
         import json
         return {
             "id": self.id,
+            "task_id": self.task_id or str(self.id),
+            "create_time": self.created_at.isoformat() if self.created_at else "",
+            "update_time": self.updated_at.isoformat() if self.updated_at else "",
             "platform": self.platform,
-            "account_id": self.account_id,
+            "account_id": str(self.account_id) if self.account_id is not None else "",
             "video_id": self.video_id,
             "video_path": self.video_path,
             "title": self.title,
@@ -99,3 +106,4 @@ class UploaderTask(Base):
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "finished_at": self.finished_at.isoformat() if self.finished_at else None,
         }
+

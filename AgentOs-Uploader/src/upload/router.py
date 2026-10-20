@@ -5,7 +5,7 @@ import uuid
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import status, APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
 from src.tasks.publish import publish_video_task
@@ -43,6 +43,19 @@ logger = logging.getLogger(__name__)
 
 def get_uploader_service() -> UploaderService:
     return UploaderService()
+
+def _enqueue_publish(**kwargs):
+    try:
+        return publish_video_task.delay(**kwargs)
+    except Exception as exc:
+        # Broker errors can be ambiguous: delivery may already have happened.
+        # Keep pending and expose the existing ID; never create/retry another post.
+        logger.exception("Publish queue submission uncertain: %s", kwargs["task_id"])
+        raise HTTPException(status_code=503, detail={
+            "task_id": kwargs["task_id"],
+            "message": "队列提交结果不确定，请查询此任务，勿重复提交发布",
+        }) from exc
+
 
 # DEV_MODE: 登录已移除 - uploader 作为独立微前端运行，无需认证
 
@@ -297,7 +310,7 @@ async def publish(
 
     # 使用 Celery 持久化任务队列替代 FastAPI.BackgroundTasks
     # .delay() 将任务异步投递到 Redis Broker，由 uploader-worker 容器负责执行
-    publish_video_task.delay(
+    _enqueue_publish(
         task_id=task_id,
         platform=req.platform,
         account_id=req.account_id,
@@ -351,6 +364,10 @@ async def retry_publish_task(
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
 
+    if task["status"] != "failed":
+        raise HTTPException(status_code=409, detail="仅失败任务可以重试")
+    task_id = task["task_id"]
+    expected_attempt = task["retry_count"]
     req_data = task.get("request_data", {})
     if not req_data:
         raise HTTPException(status_code=400, detail="任务缺少原始请求数据，无法重试")
@@ -381,10 +398,12 @@ async def retry_publish_task(
 
     # 重置任务状态为 pending，重新投递到 Celery 持久化队列
     from datetime import datetime
-    await service.update_publish_task_status(task_id, "pending")
+    if not await service.reserve_publish_retry(task_id, expected_attempt):
+        raise HTTPException(status_code=409, detail="任务状态已变化，请刷新后重试")
 
-    publish_video_task.delay(
+    _enqueue_publish(
         task_id=task_id,
+        attempt=expected_attempt + 1,
         platform=req.platform,
         account_id=req.account_id,
         video_id=req.video_id,
@@ -699,3 +718,4 @@ async def get_browser_view_url(
         "websockifyPort": 6080,
         "message": "请在新标签页打开 noVncUrl 查看浏览器画面"
     }
+

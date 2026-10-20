@@ -42,6 +42,7 @@ def publish_video_task(
     publish_date: str | None = None,
     short_title: str | None = None,
     declare_original: bool = False,
+    attempt: int = 0,
 ):
     """
     持久化发布任务。
@@ -56,6 +57,7 @@ def publish_video_task(
     asyncio.run(
         service.execute_publish_task(
             task_id=task_id,
+            attempt=attempt,
             platform=platform,
             account_id=account_id,
             video_id=video_id,
@@ -75,3 +77,4 @@ def publish_video_task(
         )
     )
     logger.info("Celery Worker 完成发布任务: task_id=%s", task_id)
+

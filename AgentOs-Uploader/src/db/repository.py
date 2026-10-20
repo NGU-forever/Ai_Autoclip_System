@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 
-from sqlalchemy import select, update
+from sqlalchemy import select, update, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import Account, UploaderTask
@@ -143,6 +143,33 @@ class TaskRepository:
     def __init__(self, session: AsyncSession):
         self._session = session
 
+    @staticmethod
+    def _identity(task_id):
+        # UUIDs must never be coerced into integer keys (including all-digit UUIDs).
+        value = str(task_id)
+        if value.isdecimal() and len(value) < 20 and str(int(value)) == value:
+            return and_(UploaderTask.task_id.is_(None), UploaderTask.id == int(value))
+        return UploaderTask.task_id == value
+
+    async def claim(self, task_id: str, attempt: int = 0) -> bool:
+        result = await self._session.execute(
+            update(UploaderTask).where(
+                self._identity(task_id), UploaderTask.status == "pending",
+                UploaderTask.retry_count == attempt,
+            ).values(status="running", started_at=datetime.now(), finished_at=None, error_msg=None)
+        )
+        return result.rowcount == 1
+
+    async def reserve_retry(self, task_id: str, expected_attempt: int) -> bool:
+        result = await self._session.execute(
+            update(UploaderTask).where(
+                self._identity(task_id), UploaderTask.status == "failed",
+                UploaderTask.retry_count == expected_attempt,
+            ).values(status="pending", retry_count=expected_attempt + 1,
+                     error_msg=None, started_at=None, finished_at=None)
+        )
+        return result.rowcount == 1
+
     async def create(
         self,
         task_id: str,
@@ -155,6 +182,7 @@ class TaskRepository:
         request_data: Optional[Dict[str, Any]] = None,
     ) -> UploaderTask:
         task = UploaderTask(
+            task_id=task_id,
             platform=platform,
             account_id=account_id,
             video_id=video_id,
@@ -170,7 +198,7 @@ class TaskRepository:
 
     async def get_by_id(self, task_id: str) -> Optional[UploaderTask]:
         result = await self._session.execute(
-            select(UploaderTask).where(UploaderTask.id == task_id)
+            select(UploaderTask).where(self._identity(task_id))
         )
         return result.scalar_one_or_none()
 
@@ -191,7 +219,7 @@ class TaskRepository:
     async def set_running(self, task_id: str) -> bool:
         result = await self._session.execute(
             update(UploaderTask)
-            .where(UploaderTask.id == task_id)
+            .where(self._identity(task_id))
             .values(status="running", started_at=datetime.now())
         )
         return result.rowcount > 0
@@ -199,7 +227,7 @@ class TaskRepository:
     async def set_success(self, task_id: str) -> bool:
         result = await self._session.execute(
             update(UploaderTask)
-            .where(UploaderTask.id == task_id)
+            .where(self._identity(task_id))
             .values(status="success", finished_at=datetime.now())
         )
         return result.rowcount > 0
@@ -207,7 +235,7 @@ class TaskRepository:
     async def set_failed(self, task_id: str, error_msg: str) -> bool:
         result = await self._session.execute(
             update(UploaderTask)
-            .where(UploaderTask.id == task_id)
+            .where(self._identity(task_id))
             .values(
                 status="failed",
                 error_msg=error_msg,
@@ -230,14 +258,14 @@ class TaskRepository:
         if status in ("success", "failed"):
             values["finished_at"] = datetime.now()
         result = await self._session.execute(
-            update(UploaderTask).where(UploaderTask.id == task_id).values(**values)
+            update(UploaderTask).where(self._identity(task_id)).values(**values)
         )
         return result.rowcount > 0
 
     async def update_request_data(self, task_id: str, request_data: Dict[str, Any]) -> bool:
         result = await self._session.execute(
             update(UploaderTask)
-            .where(UploaderTask.id == task_id)
+            .where(self._identity(task_id))
             .values(
                 request_data=json.dumps(request_data, ensure_ascii=False),
                 updated_at=datetime.now(),
@@ -253,7 +281,7 @@ class TaskRepository:
         new_count = task.retry_count + 1
         await self._session.execute(
             update(UploaderTask)
-            .where(UploaderTask.id == task_id)
+            .where(self._identity(task_id))
             .values(retry_count=new_count, status="pending")
         )
         return new_count
@@ -274,3 +302,4 @@ class TaskRepository:
             )
         )
         return result.rowcount
+

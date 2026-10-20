@@ -8,6 +8,7 @@ from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
+from sqlalchemy import inspect, text
 
 from .models import Base
 
@@ -45,10 +46,25 @@ AsyncSessionLocal = async_sessionmaker(
 async def init_db() -> None:
     """在应用启动时创建所有表（幂等）"""
     async with engine.begin() as conn:
+        # Additive migration: retain integer PKs, relationships and every existing row.
+        # Serialize concurrent API startups before inspecting or changing the schema.
+        if conn.dialect.name == "postgresql":
+            await conn.execute(text("SELECT pg_advisory_xact_lock(724193851)"))
+        elif conn.dialect.name == "sqlite":
+            await conn.execute(text("BEGIN IMMEDIATE"))
         await conn.run_sync(Base.metadata.create_all)
+        columns = await conn.run_sync(
+            lambda sync: {c["name"] for c in inspect(sync).get_columns("uploader_tasks")}
+        )
+        if "task_id" not in columns:
+            await conn.execute(text("ALTER TABLE uploader_tasks ADD COLUMN task_id VARCHAR(32)"))
+        await conn.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_uploader_tasks_task_id ON uploader_tasks (task_id)"
+        ))
 
 
 async def get_session() -> AsyncSession:
     """FastAPI 依赖项用法：async with get_session() as session: ..."""
     async with AsyncSessionLocal() as session:
         yield session
+
